@@ -1,0 +1,10 @@
+{
+  "name": "EventSphere",
+  "description": "Enterprise event management SaaS platform with real-time attendee tracking, Paystack payment processing, automated scheduling, QR scanning, and analytics.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

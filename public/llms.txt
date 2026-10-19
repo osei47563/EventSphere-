@@ -1,0 +1,27 @@
+# EventSphere
+
+> EventSphere is a modern multi-tenant event ticketing and management platform in West Africa, featuring instant Paystack checkout (Mobile Money & Card), downloadable receipts with scannable QR passes, quick WhatsApp ticket sharing, and real-time organizer revenue settlement.
+
+## Core Capabilities
+- **Event Discovery & Ticketing**: Attendees can browse concerts, tech conferences, cultural festivals, and executive summits, select tiers, and purchase verified passes.
+- **Paystack Payment Rails**: Direct integration supporting MTN Mobile Money, Telecel Cash, AirtelTigo, Visa, Mastercard, Verve, USSD, and Bank Transfers.
+- **Digital Passes & Verified Receipts**: Scannable QR passes generated on registration, complete with attendee contact details (full name, phone, email) and verifiable receipts.
+- **WhatsApp Quick Share**: 1-click sharing of ticket codes, receipts, and event schedules directly into WhatsApp.
+- **Gate Check-In Scanner**: In-browser camera scanning to validate attendee QR tokens in under 1 second and prevent duplicate admissions.
+- **Organizer Revenue & Payouts**: Automated calculation of net earnings with transparent commission rates and bank/mobile money withdrawal transfers.
+
+## Key URLs
+- Home & Events Marketplace: https://ais-pre-7fkubo3etuqhjtf4zge5eg-813661720713.europe-west2.run.app/
+- About Us: https://ais-pre-7fkubo3etuqhjtf4zge5eg-813661720713.europe-west2.run.app/about
+- Customer Support & FAQ: https://ais-pre-7fkubo3etuqhjtf4zge5eg-813661720713.europe-west2.run.app/contact
+- Privacy Policy: https://ais-pre-7fkubo3etuqhjtf4zge5eg-813661720713.europe-west2.run.app/privacy
+- Terms of Service: https://ais-pre-7fkubo3etuqhjtf4zge5eg-813661720713.europe-west2.run.app/terms
+
+## Geographic Coverage & Target Market
+- Primary Region: Ghana (Kumasi, Accra, Takoradi, Tamale) and West Africa (Nigeria, Kenya)
+- Currencies: Ghanaian Cedi (GHS), Nigerian Naira (NGN), US Dollar (USD)
+
+## Contact & Organization
+- Head Office: Kumasi, Ghana
+- Phone: +233 53 002 6527
+- Email: obahlog@gmail.com / support@eventsphere.io

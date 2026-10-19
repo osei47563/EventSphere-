@@ -1,0 +1,21 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+
+# AI Search & LLM Crawlers
+User-agent: GPTBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+Sitemap: https://ais-pre-7fkubo3etuqhjtf4zge5eg-813661720713.europe-west2.run.app/sitemap.xml
+# LLM Context: https://ais-pre-7fkubo3etuqhjtf4zge5eg-813661720713.europe-west2.run.app/llms.txt
+
