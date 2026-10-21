@@ -4756,3 +4756,9 @@ input:focus { outline: 2px solid var(--green-100); border-color: var(--green-800
 }
 
 
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

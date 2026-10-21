@@ -46,7 +46,8 @@ export const PublicEventPage: React.FC = () => {
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'mobile-money' | 'card'>('mobile-money');
   const [formError, setFormError] = useState('');
-  const [confirmedAttendee, setConfirmedAttendee] = useState<any | null>(null);
+  const [confirmedAttendees, setConfirmedAttendees] = useState<any[]>([]);
+  const [selectedTicketTab, setSelectedTicketTab] = useState<number>(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isPaystackOpen, setIsPaystackOpen] = useState(false);
 
@@ -86,6 +87,49 @@ export const PublicEventPage: React.FC = () => {
     }
   };
 
+  // Helper to register each individual ticket item
+  const registerAllPurchasedTickets = async (
+    paymentRef?: string,
+    channel: 'card' | 'bank_transfer' | 'ussd' | 'mobile_money' = 'card'
+  ): Promise<any[]> => {
+    const registered: any[] = [];
+    const totalOrderAmount = getTotal();
+    const totalCount = getTicketCount();
+
+    // Iterate through all tiers and quantities
+    for (const tier of activeEvent.ticketTiers) {
+      const qty = quantities[tier.id] || 0;
+      if (qty <= 0) continue;
+
+      const singleTierPrice = tier.price;
+      const currency = tier.currency || activeEvent.currency || organization.currency || 'GHS';
+
+      for (let i = 0; i < qty; i++) {
+        // Individual ticket price proportion
+        const singlePrice = totalOrderAmount === 0 ? 0 : singleTierPrice;
+        const attendee = await registerAttendee({
+          eventId: activeEvent.id,
+          ticketTierId: tier.id,
+          fullName: qty > 1 ? `${firstName.trim()} ${lastName.trim()} (Ticket #${registered.length + 1})` : `${firstName.trim()} ${lastName.trim()}`,
+          email: email.trim(),
+          phone: phone.trim(),
+          company: 'Attendee',
+          jobTitle: 'Guest',
+          customAnswers: {
+            ticketItemNumber: String(registered.length + 1),
+            totalInOrder: String(totalCount),
+          },
+          amountPaid: singlePrice,
+          currency,
+          paymentChannel: channel,
+          paymentReference: paymentRef,
+        });
+        registered.push(attendee);
+      }
+    }
+    return registered;
+  };
+
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
@@ -114,20 +158,9 @@ export const PublicEventPage: React.FC = () => {
     if (totalAmount === 0) {
       setIsSubmitting(true);
       try {
-        const attendee = await registerAttendee({
-          eventId: activeEvent.id,
-          ticketTierId: primaryTier.id,
-          fullName: `${firstName.trim()} ${lastName.trim()}`,
-          email: email.trim(),
-          phone: phone.trim(),
-          company: 'Attendee',
-          jobTitle: 'Guest',
-          customAnswers: {},
-          amountPaid: 0,
-          currency,
-          paymentChannel: 'card',
-        });
-        setConfirmedAttendee(attendee);
+        const attendeesList = await registerAllPurchasedTickets(undefined, 'card');
+        setConfirmedAttendees(attendeesList);
+        setSelectedTicketTab(0);
         setPageView('success');
       } catch (err) {
         setFormError('Booking submission failed. Please try again.');
@@ -146,28 +179,19 @@ export const PublicEventPage: React.FC = () => {
         amount: totalAmount,
         currency,
         eventName: activeEvent.title,
-        ticketTierName: primaryTier.name,
+        ticketTierName: `${getTicketCount()}x Tickets (${primaryTier.name}...)`,
         customerName: `${firstName.trim()} ${lastName.trim()}`,
         channels: chosenChannel === 'card' ? ['card', 'bank_transfer', 'ussd'] : ['mobile_money', 'card'],
       },
       onSuccess: async (paystackRes) => {
         setIsSubmitting(true);
         try {
-          const attendee = await registerAttendee({
-            eventId: activeEvent.id,
-            ticketTierId: primaryTier.id,
-            fullName: `${firstName.trim()} ${lastName.trim()}`,
-            email: email.trim(),
-            phone: phone.trim(),
-            company: 'Attendee',
-            jobTitle: 'Guest',
-            customAnswers: {},
-            amountPaid: totalAmount,
-            currency,
-            paymentChannel: (paystackRes.channel as any) || chosenChannel,
-            paymentReference: paystackRes.reference,
-          });
-          setConfirmedAttendee(attendee);
+          const attendeesList = await registerAllPurchasedTickets(
+            paystackRes.reference,
+            (paystackRes.channel as any) || chosenChannel
+          );
+          setConfirmedAttendees(attendeesList);
+          setSelectedTicketTab(0);
           setPageView('success');
         } catch (err) {
           setFormError('Payment confirmed, but booking registration failed. Please contact support with reference: ' + paystackRes.reference);
@@ -193,24 +217,9 @@ export const PublicEventPage: React.FC = () => {
     setIsPaystackOpen(false);
     setIsSubmitting(true);
     try {
-      const primaryTier = activeEvent.ticketTiers.find((t) => (quantities[t.id] || 0) > 0) || activeEvent.ticketTiers[0];
-      const currency = primaryTier?.currency || activeEvent.currency || organization.currency || 'GHS';
-      const attendee = await registerAttendee({
-        eventId: activeEvent.id,
-        ticketTierId: primaryTier.id,
-        fullName: `${firstName.trim()} ${lastName.trim()}`,
-        email: email.trim(),
-        phone: phone.trim(),
-        company: 'Attendee',
-        jobTitle: 'Guest',
-        customAnswers: {},
-        amountPaid: getTotal(),
-        currency,
-        paymentChannel: channel,
-        paymentReference,
-      });
-
-      setConfirmedAttendee(attendee);
+      const attendeesList = await registerAllPurchasedTickets(paymentReference, channel);
+      setConfirmedAttendees(attendeesList);
+      setSelectedTicketTab(0);
       setPageView('success');
     } catch (err) {
       setFormError('Registration could not be completed. Please try again.');
@@ -662,131 +671,303 @@ export const PublicEventPage: React.FC = () => {
 
       {/* PAGE 3: SUCCESS CONFIRMATION & VERIFIED RECEIPT */}
       {pageView === 'success' && (
-        <main className="flex-1" style={{ padding: '40px 0', background: '#f8fafc' }}>
-          <div className="container" style={{ maxWidth: '720px', margin: '0 auto' }}>
-            <div style={{ background: '#fff', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.08)', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
-              
-              {/* Top Banner */}
-              <div style={{ background: 'linear-gradient(135deg, #059669 0%, #047857 100%)', color: '#fff', padding: '32px 24px', textAlign: 'center' }}>
-                <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: '28px' }}>✓</div>
-                <h1 style={{ fontSize: '24px', fontWeight: 800, margin: '0 0 8px' }}>Payment & Booking Successful!</h1>
-                <p style={{ margin: 0, opacity: 0.9, fontSize: '15px' }}>Your verified ticket and digital receipt have been generated.</p>
+        <main className="flex-1" style={{ padding: '36px 0', background: '#f8fafc' }}>
+          <div className="container" style={{ maxWidth: '780px', margin: '0 auto' }}>
+            {/* Top Order Overview Banner */}
+            <div style={{ background: '#0F172A', color: '#fff', borderRadius: '16px 16px 0 0', padding: '24px 28px', borderBottom: '3px solid #10B981' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div>
+                  <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '1px', color: '#34D399', fontWeight: 800 }}>
+                    ✓ Order Confirmed · Verified Passes
+                  </span>
+                  <h1 style={{ fontSize: '22px', fontWeight: 800, margin: '4px 0 2px' }}>
+                    {confirmedAttendees.length} Verified {confirmedAttendees.length === 1 ? 'Ticket Pass' : 'Ticket Passes'} Issued
+                  </h1>
+                  <p style={{ margin: 0, fontSize: '13px', color: '#94A3B8' }}>
+                    Purchased by <strong style={{ color: '#F1F5F9' }}>{firstName} {lastName}</strong> ({email})
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <span style={{ fontSize: '11px', color: '#94A3B8', display: 'block' }}>Total Paid</span>
+                  <div style={{ fontSize: '20px', fontWeight: 800, color: '#34D399', fontFamily: 'monospace' }}>
+                    {formatCurrency(getTotal(), activeEvent.currency || organization.currency || 'GHS')}
+                  </div>
+                </div>
               </div>
 
-              {/* Receipt Body */}
-              <div style={{ padding: '32px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px dashed #e2e8f0', paddingBottom: '20px', marginBottom: '24px' }}>
-                  <div>
-                    <span style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: '#64748b', fontWeight: 700 }}>Event</span>
-                    <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: '4px 0 0' }}>{activeEvent.title}</h2>
-                    <p style={{ margin: '4px 0 0', color: '#475569', fontSize: '14px' }}>📅 {new Date(activeEvent.startDate).toLocaleString()} | 📍 {activeEvent.venueName}</p>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', color: '#64748b', fontWeight: 700 }}>Ticket Code</span>
-                    <div style={{ fontFamily: 'monospace', fontSize: '16px', fontWeight: 700, color: '#059669', background: '#ecfdf5', padding: '4px 10px', borderRadius: '6px', marginTop: '4px' }}>
-                      {confirmedAttendee?.ticketCode || 'TKT-PENDING'}
-                    </div>
-                  </div>
+              {/* Multi-Ticket Switcher Tabs if more than 1 ticket bought */}
+              {confirmedAttendees.length > 1 && (
+                <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  {confirmedAttendees.map((att, idx) => (
+                    <button
+                      key={att.id || idx}
+                      type="button"
+                      onClick={() => setSelectedTicketTab(idx)}
+                      style={{
+                        padding: '6px 14px',
+                        borderRadius: '8px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        border: 'none',
+                        background: selectedTicketTab === idx ? '#10B981' : '#1E293B',
+                        color: selectedTicketTab === idx ? '#FFFFFF' : '#CBD5E1',
+                        transition: 'all 0.2s',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Ticket #{idx + 1} ({att.ticketTierName})
+                    </button>
+                  ))}
                 </div>
+              )}
+            </div>
 
-                {/* Attendee Details Card */}
-                <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '20px', marginBottom: '24px', border: '1px solid #f1f5f9' }}>
-                  <h3 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#64748b', margin: '0 0 12px', fontWeight: 700 }}>Attendee & Contact Information</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '14px' }}>
+            {/* Individual Printable / Exportable Ticket Container (A5 layout, Centered QR, Clean Table Grid) */}
+            {(() => {
+              const currentTicket = confirmedAttendees[selectedTicketTab] || confirmedAttendees[0];
+              if (!currentTicket) return null;
+
+              return (
+                <div
+                  id="receipt-container"
+                  style={{
+                    background: '#FFFFFF',
+                    padding: '28px 24px',
+                    border: '1px solid #E2E8F0',
+                    borderTop: 'none',
+                    borderRadius: '0 0 16px 16px',
+                    boxShadow: '0 10px 25px rgba(0,0,0,0.06)',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px dashed #E2E8F0', paddingBottom: '12px' }}>
                     <div>
-                      <span style={{ color: '#64748b', display: 'block', fontSize: '12px' }}>Full Name</span>
-                      <strong style={{ color: '#0f172a' }}>{confirmedAttendee?.fullName || `${firstName} ${lastName}`}</strong>
+                      <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#059669', letterSpacing: '0.5px' }}>
+                        Ticket {selectedTicketTab + 1} of {confirmedAttendees.length}
+                      </span>
+                      <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#0F172A', margin: '2px 0 0' }}>
+                        {activeEvent.title}
+                      </h2>
+                      <p style={{ margin: '2px 0 0', fontSize: '12px', color: '#64748B' }}>
+                        📍 {activeEvent.venueName} · 📅 {new Date(activeEvent.startDate).toLocaleDateString()}
+                      </p>
                     </div>
-                    <div>
-                      <span style={{ color: '#64748b', display: 'block', fontSize: '12px' }}>Email Address</span>
-                      <strong style={{ color: '#0f172a' }}>{confirmedAttendee?.email || email}</strong>
+                    <span style={{ padding: '4px 10px', background: '#ECFDF5', color: '#065F46', borderRadius: '6px', fontSize: '11px', fontWeight: 800, border: '1px solid #A7F3D0' }}>
+                      {currentTicket.ticketTierName.toUpperCase()} PASS
+                    </span>
+                  </div>
+
+                  {/* QR Code Centrally Positioned at Top */}
+                  <div style={{ textAlign: 'center', margin: '14px 0 20px', background: '#F8FAFC', padding: '16px', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                    {currentTicket.qrDataUrl ? (
+                      <img
+                        src={currentTicket.qrDataUrl}
+                        alt="Ticket Gate QR Code"
+                        style={{ width: '150px', height: '150px', margin: '0 auto', display: 'block', background: '#fff', padding: '6px', borderRadius: '8px', border: '1px solid #CBD5E1' }}
+                      />
+                    ) : (
+                      <div style={{ width: '150px', height: '150px', background: '#E2E8F0', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: '#64748B' }}>
+                        QR Code Pass
+                      </div>
+                    )}
+                    <div style={{ fontFamily: 'monospace', fontSize: '17px', fontWeight: 800, color: '#059669', marginTop: '10px', letterSpacing: '1px' }}>
+                      {currentTicket.ticketCode}
                     </div>
-                    <div>
-                      <span style={{ color: '#64748b', display: 'block', fontSize: '12px' }}>Phone Number</span>
-                      <strong style={{ color: '#0f172a' }}>{confirmedAttendee?.phone || phone || 'N/A'}</strong>
+                    <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#64748B' }}>
+                      Scan at door gate entrance for instant access validation. Each ticket has a distinct scannable code.
+                    </p>
+                  </div>
+
+                  {/* Table-like Grid for Ticket Details */}
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', marginBottom: '16px' }}>
+                    <tbody>
+                      {[
+                        { label: 'Event', value: activeEvent.title },
+                        { label: 'Ticket Holder', value: currentTicket.fullName },
+                        { label: 'Admission Tier', value: currentTicket.ticketTierName },
+                        { label: 'Ticket Code', value: currentTicket.ticketCode },
+                        { label: 'Purchaser Email', value: currentTicket.email },
+                        { label: 'Phone', value: currentTicket.phone || phone || 'N/A' },
+                        { label: 'Item Price', value: formatCurrency(currentTicket.amountPaid, currentTicket.currency || activeEvent.currency) },
+                        { label: 'Payment Reference', value: currentTicket.paymentReference || 'N/A' },
+                        { label: 'Digital Security Seal', value: currentTicket.securitySeal || 'ES-VERIFIED-PASS' },
+                        { label: 'Anti-Forgery Verification', value: '🛡️ Cryptographically Signed & Watermarked' },
+                      ].map((row, i) => (
+                        <tr key={i} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                          <td style={{ padding: '8px 4px', color: '#64748B', fontWeight: 700, textTransform: 'uppercase', fontSize: '11px', width: '35%' }}>
+                            {row.label}
+                          </td>
+                          <td style={{ padding: '8px 4px', color: '#0F172A', fontWeight: 600, fontFamily: row.label.includes('Seal') ? 'monospace' : 'inherit' }}>
+                            {row.value}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <p style={{ margin: 0, fontSize: '11px', color: '#94A3B8', textAlign: 'center' }}>
+                    EventSphere Verified Ticketing · Issued on {new Date(currentTicket.createdAt || Date.now()).toLocaleString()}
+                  </p>
+                </div>
+              );
+            })()}
+
+            {/* Hidden container with all tickets for Multi-Ticket All-In-One PDF Export */}
+            <div id="all-tickets-export-container" style={{ position: 'absolute', left: '-9999px', top: '-9999px', width: '560px' }}>
+              {confirmedAttendees.map((att, idx) => (
+                <div
+                  key={att.id || idx}
+                  className="pdf-ticket-page"
+                  style={{
+                    background: '#FFFFFF',
+                    padding: '24px',
+                    marginBottom: '20px',
+                    borderRadius: '8px',
+                    border: '1px solid #CBD5E1',
+                    pageBreakAfter: 'always',
+                    boxSizing: 'border-box',
+                    width: '560px',
+                  }}
+                >
+                  <div style={{ textAlign: 'center', borderBottom: '2px solid #059669', paddingBottom: '8px', marginBottom: '14px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#059669' }}>
+                      EVENTSPHERE ADMISSION PASS · TICKET #{idx + 1} OF {confirmedAttendees.length}
+                    </span>
+                    <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#0F172A', margin: '4px 0 2px' }}>
+                      {activeEvent.title}
+                    </h2>
+                    <p style={{ margin: 0, fontSize: '11px', color: '#64748B' }}>
+                      📍 {activeEvent.venueName} · 📅 {new Date(activeEvent.startDate).toLocaleString()}
+                    </p>
+                  </div>
+
+                  {/* Centered QR */}
+                  <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                    {att.qrDataUrl ? (
+                      <img
+                        src={att.qrDataUrl}
+                        alt="QR Code"
+                        style={{ width: '140px', height: '140px', margin: '0 auto', display: 'block', border: '1px solid #CBD5E1', padding: '4px', borderRadius: '6px' }}
+                      />
+                    ) : null}
+                    <div style={{ fontFamily: 'monospace', fontSize: '16px', fontWeight: 800, color: '#059669', marginTop: '8px' }}>
+                      {att.ticketCode}
                     </div>
-                    <div>
-                      <span style={{ color: '#64748b', display: 'block', fontSize: '12px' }}>Ticket Tier</span>
-                      <strong style={{ color: '#0f172a' }}>{confirmedAttendee?.ticketTierName || 'Standard Pass'}</strong>
-                    </div>
+                    <span style={{ display: 'inline-block', marginTop: '4px', padding: '2px 8px', background: '#ECFDF5', color: '#065F46', borderRadius: '4px', fontSize: '11px', fontWeight: 800 }}>
+                      ACCESS: {att.ticketTierName.toUpperCase()}
+                    </span>
                   </div>
+
+                  {/* Table details */}
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '11px' }}>
+                    <tbody>
+                      <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#64748B' }}>ATTENDEE</td>
+                        <td style={{ padding: '6px 0', fontWeight: 600, color: '#0F172A' }}>{att.fullName}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#64748B' }}>TIER</td>
+                        <td style={{ padding: '6px 0', fontWeight: 600, color: '#0F172A' }}>{att.ticketTierName}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#64748B' }}>PRICE</td>
+                        <td style={{ padding: '6px 0', fontWeight: 600, color: '#0F172A' }}>{formatCurrency(att.amountPaid, att.currency || activeEvent.currency)}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#64748B' }}>PAYMENT REF</td>
+                        <td style={{ padding: '6px 0', fontWeight: 600, color: '#0F172A' }}>{att.paymentReference || 'N/A'}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#64748B' }}>SECURITY SEAL</td>
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#0F172A', fontFamily: 'monospace' }}>{att.securitySeal || 'ES-VERIFIED'}</td>
+                      </tr>
+                      <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                        <td style={{ padding: '6px 0', fontWeight: 700, color: '#64748B' }}>STATUS</td>
+                        <td style={{ padding: '6px 0', fontWeight: 600, color: '#059669' }}>✓ Verified Tamper-Proof Pass</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <p style={{ marginTop: '12px', fontSize: '10px', color: '#94A3B8', textAlign: 'center' }}>
+                    Present this distinct ticket pass at the venue entrance gate. Scannable & verifiable independently.
+                  </p>
                 </div>
+              ))}
+            </div>
 
-                {/* Payment & Reference Details */}
-                <div style={{ marginBottom: '24px' }}>
-                  <h3 style={{ fontSize: '14px', textTransform: 'uppercase', letterSpacing: '0.5px', color: '#64748b', margin: '0 0 12px', fontWeight: 700 }}>Payment & Transaction Summary</h3>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
-                    <span style={{ color: '#64748b' }}>Amount Paid</span>
-                    <strong style={{ color: '#0f172a' }}>{formatCurrency(confirmedAttendee?.amountPaid ?? getTotal(), confirmedAttendee?.currency || activeEvent.currency)}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
-                    <span style={{ color: '#64748b' }}>Payment Method</span>
-                    <strong style={{ color: '#0f172a', textTransform: 'capitalize' }}>{confirmedAttendee?.paymentChannel || paymentMethod || 'Card / Mobile Money'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #f1f5f9', fontSize: '14px' }}>
-                    <span style={{ color: '#64748b' }}>Transaction Reference</span>
-                    <strong style={{ fontFamily: 'monospace', color: '#0f172a' }}>{confirmedAttendee?.paymentReference || 'PSTK-REF-OK'}</strong>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', fontSize: '14px' }}>
-                    <span style={{ color: '#64748b' }}>Verification Status</span>
-                    <strong style={{ color: '#059669', display: 'flex', alignItems: 'center', gap: '4px' }}>✓ Verified Valid Ticket</strong>
-                  </div>
-                </div>
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginTop: '20px' }}>
+              <button
+                className="btn btn-primary"
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', minWidth: '220px' }}
+                onClick={async () => {
+                  const { jsPDF } = await import('jspdf');
+                  const html2canvas = (await import('html2canvas')).default;
 
-                {/* QR Code Section */}
-                <div style={{ textAlign: 'center', background: '#f8fafc', padding: '24px', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '24px' }}>
-                  {confirmedAttendee?.qrDataUrl ? (
-                    <img src={confirmedAttendee.qrDataUrl} alt="Ticket QR Code" style={{ width: '160px', height: '160px', margin: '0 auto 12px', display: 'block', borderRadius: '8px', border: '4px solid #fff', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }} />
-                  ) : (
-                    <div style={{ width: '160px', height: '160px', background: '#e2e8f0', margin: '0 auto 12px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '8px', color: '#64748b' }}>QR Code</div>
-                  )}
-                  <p style={{ margin: 0, fontSize: '13px', color: '#64748b' }}>Present this QR code or ticket code at the venue entrance scanner for instant check-in verification.</p>
-                </div>
+                  // If multiple tickets, generate a comprehensive PDF with every individual ticket on its own page
+                  if (confirmedAttendees.length > 1) {
+                    const ticketElements = document.querySelectorAll('.pdf-ticket-page');
+                    if (ticketElements.length > 0) {
+                      const pdf = new jsPDF('p', 'mm', 'a4');
+                      const pdfWidth = pdf.internal.pageSize.getWidth();
+                      const pdfHeight = pdf.internal.pageSize.getHeight();
 
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                  <button
-                    className="btn btn-primary"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                    onClick={() => window.print()}
-                  >
-                    <span>📥</span> Download / Print Receipt
-                  </button>
+                      for (let i = 0; i < ticketElements.length; i++) {
+                        const el = ticketElements[i] as HTMLElement;
+                        const canvas = await html2canvas(el, { scale: 2, useCORS: true });
+                        const imgData = canvas.toDataURL('image/png', 1.0);
+                        const imgProps = pdf.getImageProperties(imgData);
+                        const renderedHeight = (imgProps.height * (pdfWidth - 20)) / imgProps.width;
 
-                  <a
-                    className="btn"
-                    style={{ flex: 1, background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', textDecoration: 'none', borderRadius: '8px', fontWeight: 600, padding: '12px 20px' }}
-                    href={`https://api.whatsapp.com/send?text=${encodeURIComponent(
-                      `🎟️ *Verified Ticket & Receipt - ${activeEvent.title}*\n` +
-                      `-------------------\n` +
-                      `👤 Name: ${confirmedAttendee?.fullName || firstName + ' ' + lastName}\n` +
-                      `📧 Email: ${confirmedAttendee?.email || email}\n` +
-                      `📱 Phone: ${confirmedAttendee?.phone || phone}\n` +
-                      `🎫 Ticket Code: ${confirmedAttendee?.ticketCode || 'TKT'}\n` +
-                      `🏷️ Tier: ${confirmedAttendee?.ticketTierName || 'Standard'}\n` +
-                      `💰 Paid: ${formatCurrency(confirmedAttendee?.amountPaid || 0, confirmedAttendee?.currency || 'GHS')}\n` +
-                      `🔖 Ref: ${confirmedAttendee?.paymentReference || 'N/A'}\n` +
-                      `-------------------\n` +
-                      `Show this receipt or QR code at entry for instant verification!`
-                    )}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <span>💬</span> Share to WhatsApp
-                  </a>
-                </div>
+                        if (i > 0) pdf.addPage();
+                        // Center ticket vertically or place at top
+                        pdf.addImage(imgData, 'PNG', 10, 15, pdfWidth - 20, Math.min(renderedHeight, pdfHeight - 30));
+                      }
+                      pdf.save(`${activeEvent.slug}-${confirmedAttendees.length}-tickets-receipt.pdf`);
+                      return;
+                    }
+                  }
 
-                <div style={{ textAlign: 'center', marginTop: '20px' }}>
-                  <button
-                    style={{ background: 'none', border: 'none', color: '#059669', fontWeight: 600, cursor: 'pointer', fontSize: '14px', textDecoration: 'underline' }}
-                    onClick={() => setCurrentView('home')}
-                  >
-                    ← Return to Events Marketplace
-                  </button>
-                </div>
+                  // Single ticket PDF generation
+                  const element = document.getElementById('receipt-container');
+                  if (element) {
+                    const canvas = await html2canvas(element, { 
+                      scale: 2,
+                      scrollY: -window.scrollY,
+                      windowWidth: element.scrollWidth,
+                      windowHeight: element.scrollHeight,
+                      useCORS: true
+                    });
+                    const imgData = canvas.toDataURL('image/png', 1.0);
+                    const pdf = new jsPDF('p', 'mm', 'a4');
+                    const pdfWidth = pdf.internal.pageSize.getWidth();
+                    const imgProps = pdf.getImageProperties(imgData);
+                    const renderedHeight = (imgProps.height * (pdfWidth - 20)) / imgProps.width;
+                    pdf.addImage(imgData, 'PNG', 10, 15, pdfWidth - 20, renderedHeight);
+                    pdf.save(`${activeEvent.slug}-ticket-receipt.pdf`);
+                  }
+                }}
+              >
+                <span>📥</span> Download Complete PDF ({confirmedAttendees.length} {confirmedAttendees.length === 1 ? 'Ticket' : 'Tickets'})
+              </button>
 
+              <div
+                className="btn"
+                style={{ flex: 1, background: '#25D366', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', textDecoration: 'none', borderRadius: '8px', fontWeight: 600, padding: '12px 20px', cursor: 'pointer', minWidth: '200px' }}
+                onClick={() => {
+                  alert(`To share all ${confirmedAttendees.length} tickets, click "Download Complete PDF" first, then share the downloaded PDF document directly via WhatsApp.`);
+                }}
+              >
+                <span>💬</span> Share All Tickets PDF
               </div>
+            </div>
 
+            <div style={{ textAlign: 'center', marginTop: '20px' }}>
+              <button
+                style={{ background: 'none', border: 'none', color: '#059669', fontWeight: 600, cursor: 'pointer', fontSize: '14px', textDecoration: 'underline' }}
+                onClick={() => setCurrentView('home')}
+              >
+                ← Return to Events Marketplace
+              </button>
             </div>
           </div>
         </main>

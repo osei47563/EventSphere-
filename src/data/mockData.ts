@@ -18,13 +18,13 @@ export const INITIAL_ORGANIZATION: Organization = {
   paystackSecretKeyMasked: 'sk_test_••••••••••••••••••••••••94f1',
   currency: 'GHS',
   platformCommissionRate: 18.0, // 18% SaaS platform commission fee automatically deducted at sale
-  withdrawalAccount: {
+  withdrawalAccounts: [{
     bankName: 'Stanbic Bank Ghana / MTN MoMo Merchant',
     accountNumber: '0244981240 / 0530026527',
     accountName: 'Richard Quaye / Obah Log Events',
     routingOrSwiftCode: 'SBICGHAC / ECOCGHAC',
     currency: 'GHS',
-  },
+  }],
   createdAt: '2025-01-15T08:00:00Z',
   totalEvents: 5,
   totalRevenue: 248500,
@@ -49,6 +49,21 @@ export const INITIAL_USERS: UserAccount[] = [
   },
   {
     id: 'user_organizer_01',
+    name: 'Obah Log (Event Organizer)',
+    email: 'obahlog1@gmail.com',
+    role: 'organizer',
+    organizationId: 'org_apex_enterprises',
+    twoFactorEnabled: false,
+    permissions: {
+      canCreateEvents: true,
+      canEditFinancials: true,
+      canScanTickets: true,
+      canBroadcastNotifications: true,
+      canManageTeam: true,
+    },
+  },
+  {
+    id: 'user_organizer_02',
     name: 'Richard Quaye (Event Organizer)',
     email: 'richard.quaye@eventsphere.io',
     role: 'organizer',
@@ -998,9 +1013,9 @@ export const INITIAL_WITHDRAWAL_REQUESTS: WithdrawalRequest[] = [
 export const INITIAL_FOOTER_SETTINGS: FooterSettings = {
   companyName: 'EventSphere Ghana Ltd',
   tagline: 'Enterprise Event Management, Paystack Checkouts & Door Badging in Kumasi, Ghana',
-  supportEmail: 'obahlog@gmail.com',
+  supportEmail: 'obahlog1@gmail.com',
   copyrightYear: '2026',
-  disclaimer: 'EventSphere Ghana · Contact: 0530026527 · Email: obahlog@gmail.com · Kumasi, Ghana.',
+  disclaimer: 'EventSphere Ghana · Contact: 0530026527 · Email: obahlog1@gmail.com · Kumasi, Ghana.',
   statusText: '',
   socialLinks: {
     twitter: 'https://twitter.com/EventSphere',

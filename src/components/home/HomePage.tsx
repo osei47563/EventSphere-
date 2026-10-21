@@ -26,23 +26,24 @@ export const HomePage: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [savedEventIds, setSavedEventIds] = useState<Record<string, boolean>>({});
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [newsletterMessage, setNewsletterMessage] = useState('');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Filtered Events (Public only)
   const filteredEvents = useMemo(() => {
-    return events.filter((e) => {
-      if (e.visibility === 'private') return false;
-      const matchesSearch =
-        e.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.tagline.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.venueName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        e.venueAddress.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesCategory = selectedCategory === 'All' || e.category === selectedCategory;
-      return matchesSearch && matchesCategory;
+    return events.filter((event) => {
+      const matchSearch =
+        event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        event.venueName.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchCategory =
+        selectedCategory === 'All' || event.category === selectedCategory;
+      return matchSearch && matchCategory;
     });
   }, [events, searchQuery, selectedCategory]);
+
+
+
+
 
   const handleSelectEvent = (event: EventData) => {
     setActiveEventId(event.id);
@@ -212,37 +213,22 @@ export const HomePage: React.FC = () => {
         <section className="section" id="events" style={{ paddingTop: '10px' }}>
           <div className="container">
             <div className="section-heading">
-              <h2>Featured Events {selectedCategory !== 'All' ? `(${selectedCategory})` : ''}</h2>
+              <h2>Upcoming Events {selectedCategory !== 'All' ? `(${selectedCategory})` : ''}</h2>
               <a className="section-link" href="#events" onClick={() => setSelectedCategory('All')}>View All Events →</a>
             </div>
 
             <div className="events-grid" id="eventsGrid">
-              {events.length === 0 ? (
+              {events.filter(e => e.status !== 'completed').length === 0 ? (
                 <div style={{ padding: '56px 20px', textAlign: 'center', gridColumn: '1 / -1', background: '#F8FAF8', borderRadius: '16px', border: '1px dashed #CCD7CE' }}>
                   <div style={{ fontSize: '36px', marginBottom: '12px' }}>🎟️</div>
                   <h3 style={{ fontSize: '18px', fontWeight: '800', color: '#104A32', margin: '0 0 8px 0' }}>No Upcoming Events Scheduled</h3>
                   <p style={{ color: '#527461', fontSize: '14px', maxWidth: '480px', margin: '0 auto 20px auto', lineHeight: '1.6' }}>
                     We are currently preparing our next season of concerts, festivals, and conferences. Check back soon or list your own production today!
                   </p>
-                  <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                    <button
-                      onClick={() => {
-                        if (!isAuthenticated) {
-                          setAuthModalTab('signup');
-                          setCurrentView('auth');
-                        } else {
-                          setCurrentView('dashboard');
-                        }
-                      }}
-                      className="btn btn-primary"
-                    >
-                      Host an Event on EventSphere →
-                    </button>
-                  </div>
                 </div>
-              ) : filteredEvents.length === 0 ? (
+              ) : filteredEvents.filter(e => e.status !== 'completed').length === 0 ? (
                 <div style={{ padding: '48px 0', textAlign: 'center', gridColumn: '1 / -1' }}>
-                  <p style={{ color: '#527461', fontSize: '15px' }}>No events found matching your search or category.</p>
+                  <p style={{ color: '#527461', fontSize: '15px' }}>No upcoming events found matching your search or category.</p>
                   <button
                     onClick={() => { setSearchQuery(''); setSelectedCategory('All'); }}
                     className="btn btn-outline"
@@ -252,7 +238,7 @@ export const HomePage: React.FC = () => {
                   </button>
                 </div>
               ) : (
-                filteredEvents.map((event) => {
+                filteredEvents.filter(e => e.status !== 'completed').map((event) => {
                   const isSaved = !!savedEventIds[event.id];
                   const lowestPrice = (() => {
                     if (!event.ticketTiers || event.ticketTiers.length === 0) return 'Free';
@@ -307,6 +293,40 @@ export const HomePage: React.FC = () => {
                     </article>
                   );
                 })
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* PAST EVENTS ARCHIVE */}
+        <section className="section" id="past-events" style={{ paddingTop: '10px', background: '#F8FAF8' }}>
+          <div className="container">
+            <div className="section-heading">
+              <h2>Past Events Archive</h2>
+            </div>
+            <div className="events-grid">
+              {filteredEvents.filter(e => e.status === 'completed').length === 0 ? (
+                <p style={{ color: '#527461', fontSize: '15px', gridColumn: '1 / -1' }}>No past events archived yet.</p>
+              ) : (
+                filteredEvents.filter(e => e.status === 'completed').map((event) => (
+                    <article key={event.id} className="event-card" style={{ opacity: 0.7 }}>
+                      <div className="event-image-wrap">
+                        <img loading="lazy" src={event.coverImage} alt={event.title} />
+                        <span className="event-label" style={{ background: '#E2E8F0', color: '#334155' }}>Completed</span>
+                      </div>
+                      <div className="event-content">
+                        <h3 className="event-title">{event.title}</h3>
+                        <p className="event-meta">
+                            <span>●</span>
+                            <span>{event.venueName}</span>
+                          </p>
+                        <p className="event-meta">
+                            <span>▦</span>
+                            <span>{new Date(event.startDate).toLocaleDateString()}</span>
+                        </p>
+                      </div>
+                    </article>
+                ))
               )}
             </div>
           </div>

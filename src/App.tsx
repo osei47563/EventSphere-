@@ -52,7 +52,11 @@ const AppContent: React.FC = () => {
       )}
 
       {/* Main Top Header - On Dashboard and Internal Pages */}
-      {!isDashboardView && !isCustomStaticView && <Header />}
+      {!isDashboardView && !isCustomStaticView && (
+        <div className="no-print">
+          <Header />
+        </div>
+      )}
 
       {/* Dynamic View Router */}
       <main className="flex-1">
@@ -82,11 +86,17 @@ const AppContent: React.FC = () => {
       </main>
 
       {/* Enterprise Dynamic Footer - Rendered on Public Static and Subpages (except auth, home which has embedded footer) */}
-      {!isDashboardView && !['auth', 'home'].includes(currentView) && <Footer />}
+      {!isDashboardView && !['auth', 'home'].includes(currentView) && (
+        <div className="no-print">
+          <Footer />
+        </div>
+      )}
 
       {/* Security & Authentication Modals */}
-      <TwoFactorModal />
-      <AuthModal />
+      <div className="no-print">
+        <TwoFactorModal />
+        <AuthModal />
+      </div>
     </div>
   );
 };

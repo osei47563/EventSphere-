@@ -36,11 +36,14 @@ export interface UserAccount {
 }
 
 export interface WithdrawalAccount {
+  id?: string;
+  type?: 'bank' | 'mobile_money';
   bankName: string;
   accountNumber: string;
   accountName: string;
   routingOrSwiftCode?: string;
   currency: string;
+  isDefault?: boolean;
 }
 
 export interface WithdrawalRequest {
@@ -83,7 +86,7 @@ export interface Organization {
   paystackSecretKeyMasked: string;
   currency: 'USD' | 'NGN' | 'GHS' | 'KES' | 'ZAR' | 'EUR' | 'GBP';
   platformCommissionRate: number; // percentage, e.g. 5.0%
-  withdrawalAccount?: WithdrawalAccount;
+  withdrawalAccounts: WithdrawalAccount[];
   createdAt: string;
   totalEvents: number;
   totalRevenue: number;
@@ -163,7 +166,8 @@ export interface EventData {
   logoImage?: string;
   organizerId: string;
   organizationId: string;
-  status: 'draft' | 'published' | 'live' | 'completed' | 'cancelled';
+  status: 'draft' | 'pending_approval' | 'published' | 'live' | 'completed' | 'cancelled';
+  rejectionReason?: string;
   ticketTiers: TicketTier[];
   schedule: AgendaSession[];
   customFields: CustomFormField[];
@@ -205,6 +209,8 @@ export interface Attendee {
   checkedInAt?: string;
   checkedInBy?: string;
   createdAt: string;
+  securitySeal?: string; // Tamper-evident cryptographic signature seal (e.g. ES-A91B-4C3D-F801)
+  securityHash?: string; // Digital barcode hash
   isMock?: boolean;
 }
 

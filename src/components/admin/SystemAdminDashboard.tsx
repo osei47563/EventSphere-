@@ -38,6 +38,11 @@ interface AdminOrganizer {
   events: number;
   joined: string;
   status: 'Verified' | 'Pending' | 'Suspended';
+  withdrawalAccount?: {
+    bankName: string;
+    accountNumber: string;
+    accountName: string;
+  };
 }
 
 interface AdminCustomer {
@@ -71,6 +76,7 @@ export const SystemAdminDashboard: React.FC = () => {
     setCurrentView,
     logout,
     createEvent,
+    updateEvent,
     platformStats,
     updatePlatformCommissionRate,
     organization,
@@ -105,7 +111,7 @@ export const SystemAdminDashboard: React.FC = () => {
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   // Admin Profile, Security & Paystack Config State (Admin Only)
-  const [adminName, setAdminName] = useState(currentUser.name || 'Obah Log');
+  const [adminName, setAdminName] = useState(currentUser.name || 'Obah Log (Global Admin)');
   const [adminEmail, setAdminEmail] = useState(currentUser.email || 'obahlog@gmail.com');
   const [adminRole] = useState('System Administrator');
   const [paystackPubKey, setPaystackPubKey] = useState(
@@ -146,75 +152,84 @@ export const SystemAdminDashboard: React.FC = () => {
     }, 3500);
   };
 
-  // Seed / Local Admin Data initialized with realistic data + sync with AppContext
-  const [adminEvents, setAdminEvents] = useState<AdminEvent[]>([
-    {
-      id: 101,
-      name: 'Green Vibes Music Festival',
-      category: 'Music',
-      organizer: 'Green Vibes Events',
-      date: '2026-11-21',
-      sold: 842,
-      revenue: 67400,
-      status: 'Published',
-      icon: '🎵',
-    },
-    {
-      id: 102,
-      name: 'Accra Business Summit',
-      category: 'Business',
-      organizer: 'Summit Africa',
-      date: '2026-11-08',
-      sold: 315,
-      revenue: 15750,
-      status: 'Published',
-      icon: '💼',
-    },
-    {
-      id: 103,
-      name: 'Creative Arts Expo',
-      category: 'Arts',
-      organizer: 'Creative Hub GH',
-      date: '2026-11-15',
-      sold: 0,
-      revenue: 0,
-      status: 'Pending',
-      icon: '🎨',
-    },
-    {
-      id: 104,
-      name: 'Tech & Innovation Meetup',
-      category: 'Technology',
-      organizer: 'Future Labs',
-      date: '2026-12-05',
-      sold: 156,
-      revenue: 7800,
-      status: 'Published',
-      icon: '💻',
-    },
-    {
-      id: 105,
-      name: 'Wellness in the Park',
-      category: 'Wellness',
-      organizer: 'Wellness Collective',
-      date: '2026-12-12',
-      sold: 0,
-      revenue: 0,
-      status: 'Draft',
-      icon: '🌿',
-    },
-    {
-      id: 106,
-      name: 'Community Food Fair',
-      category: 'Food',
-      organizer: 'Accra Food Collective',
-      date: '2026-11-30',
-      sold: 98,
-      revenue: 2940,
-      status: 'Cancelled',
-      icon: '🍲',
-    },
-  ]);
+  // Seed / Local Admin Data synchronized with AppContext events
+  const [adminEvents, setAdminEvents] = useState<AdminEvent[]>(() => {
+    if (appEvents && appEvents.length > 0) {
+      return appEvents.map((e, idx) => {
+        const evAttendees = appAttendees.filter(a => a.eventId === e.id && a.paymentStatus === 'paid');
+        const sold = evAttendees.length;
+        const revenue = evAttendees.reduce((sum, a) => sum + a.amountPaid, 0);
+        return {
+          id: e.id || `ev_${idx}`,
+          name: e.title,
+          category: e.category || 'Concerts',
+          organizer: e.organizationId || 'Obah Log Events',
+          date: e.startDate ? e.startDate.split('T')[0] : '2026-11-20',
+          sold,
+          revenue,
+          status: e.status === 'published' ? 'Published' : e.status === 'pending_approval' ? 'Pending' : 'Draft',
+          icon: '🎉',
+        };
+      });
+    }
+    return [
+      {
+        id: 101,
+        name: 'Green Vibes Music Festival',
+        category: 'Music',
+        organizer: 'Green Vibes Events',
+        date: '2026-11-21',
+        sold: 842,
+        revenue: 67400,
+        status: 'Published',
+        icon: '🎵',
+      },
+      {
+        id: 102,
+        name: 'Accra Business Summit',
+        category: 'Business',
+        organizer: 'Summit Africa',
+        date: '2026-11-08',
+        sold: 315,
+        revenue: 15750,
+        status: 'Published',
+        icon: '💼',
+      },
+      {
+        id: 103,
+        name: 'Creative Arts Expo',
+        category: 'Arts',
+        organizer: 'Creative Hub GH',
+        date: '2026-11-15',
+        sold: 0,
+        revenue: 0,
+        status: 'Pending',
+        icon: '🎨',
+      },
+      {
+        id: 104,
+        name: 'Tech & Innovation Meetup',
+        category: 'Technology',
+        organizer: 'Future Labs',
+        date: '2026-12-05',
+        sold: 156,
+        revenue: 7800,
+        status: 'Published',
+        icon: '💻',
+      },
+      {
+        id: 105,
+        name: 'Wellness in the Park',
+        category: 'Wellness',
+        organizer: 'Wellness Collective',
+        date: '2026-12-12',
+        sold: 0,
+        revenue: 0,
+        status: 'Draft',
+        icon: '🌿',
+      },
+    ];
+  });
 
   const [orders] = useState<AdminOrder[]>([
     {
@@ -259,48 +274,68 @@ export const SystemAdminDashboard: React.FC = () => {
     },
   ]);
 
-  const [organizers, setOrganizers] = useState<AdminOrganizer[]>([
-    {
-      id: 1,
-      name: 'Green Vibes Events',
-      email: 'hello@greenvibes.example',
-      events: 4,
-      joined: '2026-07-12',
-      status: 'Verified',
-    },
-    {
-      id: 2,
-      name: 'Summit Africa',
-      email: 'team@summit.example',
-      events: 3,
-      joined: '2026-08-20',
-      status: 'Verified',
-    },
-    {
-      id: 3,
-      name: 'Creative Hub GH',
-      email: 'info@creativehub.example',
-      events: 2,
-      joined: '2026-10-14',
-      status: 'Pending',
-    },
-    {
-      id: 4,
-      name: 'Future Labs',
-      email: 'contact@futurelabs.example',
-      events: 5,
-      joined: '2026-06-05',
-      status: 'Verified',
-    },
-    {
-      id: 5,
-      name: 'Wellness Collective',
-      email: 'hello@wellness.example',
-      events: 1,
-      joined: '2026-10-01',
-      status: 'Suspended',
-    },
-  ]);
+  const [organizers, setOrganizers] = useState<AdminOrganizer[]>(() => {
+    return [
+      {
+        id: 1,
+        name: 'Obah Log Events',
+        email: 'obahlog1@gmail.com',
+        events: 2,
+        joined: '2026-01-01',
+        status: 'Verified',
+        withdrawalAccount: {
+          bankName: 'Stanbic Bank Ghana',
+          accountNumber: '0244981240',
+          accountName: 'Richard Quaye / Obah Log Events',
+        },
+      },
+      {
+        id: 2,
+        name: 'Green Vibes Events',
+        email: 'hello@greenvibes.example',
+        events: 4,
+        joined: '2026-07-12',
+        status: 'Verified',
+        withdrawalAccount: {
+          bankName: 'Stanbic Bank',
+          accountNumber: '1234567890',
+          accountName: 'Green Vibes Events',
+        },
+      },
+      {
+        id: 3,
+        name: 'Summit Africa',
+        email: 'team@summit.example',
+        events: 3,
+        joined: '2026-08-20',
+        status: 'Verified',
+      },
+      {
+        id: 4,
+        name: 'Creative Hub GH',
+        email: 'info@creativehub.example',
+        events: 2,
+        joined: '2026-10-14',
+        status: 'Pending',
+      },
+      {
+        id: 5,
+        name: 'Future Labs',
+        email: 'contact@futurelabs.example',
+        events: 5,
+        joined: '2026-06-05',
+        status: 'Verified',
+      },
+      {
+        id: 6,
+        name: 'Wellness Collective',
+        email: 'hello@wellness.example',
+        events: 1,
+        joined: '2026-10-01',
+        status: 'Suspended',
+      },
+    ];
+  });
 
   const [customers] = useState<AdminCustomer[]>([
     {
@@ -420,7 +455,7 @@ export const SystemAdminDashboard: React.FC = () => {
     isOpen: boolean;
     title: string;
     description: string;
-    type: 'create_event' | 'manage_event' | 'add_organizer' | 'add_category' | 'edit_category' | 'review_payout' | 'reject_event';
+    type: 'create_event' | 'manage_event' | 'add_organizer' | 'add_category' | 'edit_category' | 'review_payout' | 'reject_event' | 'view_account';
     payload?: any;
   }>({
     isOpen: false,
@@ -600,6 +635,7 @@ export const SystemAdminDashboard: React.FC = () => {
     setAdminEvents((prev) =>
       prev.map((e) => (e.id === id ? { ...e, status: 'Published' } : e))
     );
+    updateEvent(String(id), { status: 'published' });
     showToast('Event approved and published live.');
   };
 
@@ -620,6 +656,7 @@ export const SystemAdminDashboard: React.FC = () => {
       setAdminEvents((prev) =>
         prev.map((e) => (e.id === eventId ? { ...e, status: 'Draft' } : e))
       );
+      updateEvent(String(eventId), { status: 'draft', rejectionReason: modalRejectReason || 'Returned to draft by administrator' });
       setModalConfig((c) => ({ ...c, isOpen: false }));
       showToast('Event returned to draft status.');
     }
@@ -2005,6 +2042,7 @@ export const SystemAdminDashboard: React.FC = () => {
                         <th>Events</th>
                         <th>Joined</th>
                         <th>Status</th>
+                        <th>Account Details</th>
                         <th>Action</th>
                       </tr>
                     </thead>
@@ -2026,6 +2064,24 @@ export const SystemAdminDashboard: React.FC = () => {
                             <td>
                               <button
                                 type="button"
+                                className="btn btn-outline"
+                                style={{ padding: '4px 8px', fontSize: '10px' }}
+                                onClick={() => {
+                                  setModalConfig({
+                                    isOpen: true,
+                                    title: `Account: ${org.name}`,
+                                    description: `Withdrawal details for ${org.name}`,
+                                    type: 'view_account',
+                                    payload: org,
+                                  });
+                                }}
+                              >
+                                View Details
+                              </button>
+                            </td>
+                            <td>
+                              <button
+                                type="button"
                                 className="table-action"
                                 onClick={() => toggleOrganizerStatus(org.id)}
                               >
@@ -2040,7 +2096,7 @@ export const SystemAdminDashboard: React.FC = () => {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={6}>
+                          <td colSpan={7}>
                             <div className="empty-state">
                               <strong>No organizers found</strong>
                             </div>
@@ -2595,6 +2651,37 @@ export const SystemAdminDashboard: React.FC = () => {
                       <option value="GBP">British Pound (GBP)</option>
                       <option value="NGN">Nigerian Naira (NGN)</option>
                     </select>
+                  </div>
+                </section>
+
+                <section className="settings-card" style={{ border: '2px solid #10B981', background: '#F0FDF4' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                    <span style={{ width: '22px', height: '22px', background: '#10B981', color: '#fff', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '13px' }}>
+                      %
+                    </span>
+                    <h3 style={{ margin: 0, color: '#065F46', fontSize: '15px' }}>Platform Commission Rate Policy</h3>
+                  </div>
+                  <p style={{ fontSize: '11px', color: '#047857', marginBottom: '14px', lineHeight: '1.5' }}>
+                    Configure the percentage commission deducted on all ticket sales platform-wide. This updates the split rate instantly for all organizers and future ticket orders.
+                  </p>
+                  <div className="field">
+                    <label htmlFor="adminCommissionRate" style={{ fontWeight: 'bold', color: '#065F46' }}>Commission Rate (%)</label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px' }}>
+                      <input
+                        id="adminCommissionRate"
+                        type="number"
+                        min="0"
+                        max="50"
+                        step="0.5"
+                        value={adminCommissionRate}
+                        onChange={(e) => setAdminCommissionRate(Math.max(0, Math.min(50, parseFloat(e.target.value) || 0)))}
+                        style={{ width: '130px', padding: '10px 12px', borderRadius: '8px', border: '1px solid #A7F3D0', fontSize: '15px', fontWeight: 'bold', background: '#fff', color: '#065F46' }}
+                      />
+                      <span style={{ fontSize: '13px', fontWeight: 'bold', color: '#065F46' }}>% platform cut per ticket</span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#047857', display: 'block', marginTop: '6px' }}>
+                      Organizers retain the remaining {(100 - adminCommissionRate).toFixed(1)}% of gross ticket sales in their withdrawable wallet.
+                    </span>
                   </div>
                 </section>
 
@@ -3418,6 +3505,34 @@ export const SystemAdminDashboard: React.FC = () => {
                     onClick={() => markPayoutReviewed(modalConfig.payload.id)}
                   >
                     Mark reviewed & approved
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Body: View Account Details */}
+            {modalConfig.type === 'view_account' && modalConfig.payload && (
+              <div>
+                <p style={{ fontSize: '13px', lineHeight: '1.6', marginBottom: '16px' }}>
+                  {modalConfig.payload.withdrawalAccount ? (
+                    <>
+                      <strong>Bank/Provider:</strong> {modalConfig.payload.withdrawalAccount.bankName}
+                      <br />
+                      <strong>Account Number:</strong> {modalConfig.payload.withdrawalAccount.accountNumber}
+                      <br />
+                      <strong>Account Holder:</strong> {modalConfig.payload.withdrawalAccount.accountName}
+                    </>
+                  ) : (
+                    <span style={{ color: '#D97706' }}>No withdrawal account configured.</span>
+                  )}
+                </p>
+                <div className="modal-actions">
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={() => setModalConfig((c) => ({ ...c, isOpen: false }))}
+                  >
+                    Close
                   </button>
                 </div>
               </div>

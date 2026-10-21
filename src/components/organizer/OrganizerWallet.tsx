@@ -25,7 +25,8 @@ export const OrganizerWallet: React.FC = () => {
     walletStats,
     withdrawalRequests,
     requestWithdrawal,
-    updateWithdrawalAccount,
+    addWithdrawalAccount,
+    removeWithdrawalAccount,
   } = useApp();
 
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -35,10 +36,10 @@ export const OrganizerWallet: React.FC = () => {
   );
 
   // Bank Account Edit state
-  const [bankName, setBankName] = useState(organization.withdrawalAccount?.bankName || 'JPMorgan Chase / Stanbic IBTC');
-  const [accountNumber, setAccountNumber] = useState(organization.withdrawalAccount?.accountNumber || '9928104829');
-  const [accountName, setAccountName] = useState(organization.withdrawalAccount?.accountName || 'Apex Global Conferences & Media Ltd');
-  const [routingCode, setRoutingCode] = useState(organization.withdrawalAccount?.routingOrSwiftCode || 'CHASUS33');
+  const [bankName, setBankName] = useState(organization.withdrawalAccounts?.[0]?.bankName || 'JPMorgan Chase / Stanbic IBTC');
+  const [accountNumber, setAccountNumber] = useState(organization.withdrawalAccounts?.[0]?.accountNumber || '9928104829');
+  const [accountName, setAccountName] = useState(organization.withdrawalAccounts?.[0]?.accountName || 'Apex Global Conferences & Media Ltd');
+  const [routingCode, setRoutingCode] = useState(organization.withdrawalAccounts?.[0]?.routingOrSwiftCode || 'CHASUS33');
 
   const orgWithdrawals = withdrawalRequests.filter((w) => w.organizationId === organization.id);
 
@@ -58,7 +59,7 @@ export const OrganizerWallet: React.FC = () => {
       return;
     }
 
-    const currentAccount: WithdrawalAccount = organization.withdrawalAccount || {
+    const currentAccount: WithdrawalAccount = organization.withdrawalAccounts?.[0] || {
       bankName,
       accountNumber,
       accountName,
@@ -72,7 +73,7 @@ export const OrganizerWallet: React.FC = () => {
 
   const handleSaveAccount = (e: React.FormEvent) => {
     e.preventDefault();
-    updateWithdrawalAccount({
+    addWithdrawalAccount({
       bankName,
       accountNumber,
       accountName,
@@ -189,19 +190,19 @@ export const OrganizerWallet: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs">
           <div>
             <span className="text-slate-400 block text-[11px]">Bank Name</span>
-            <span className="font-semibold text-slate-800">{organization.withdrawalAccount?.bankName || 'Not Set'}</span>
+            <span className="font-semibold text-slate-800">{organization.withdrawalAccounts?.[0]?.bankName || 'Not Set'}</span>
           </div>
           <div>
             <span className="text-slate-400 block text-[11px]">Account Number</span>
-            <span className="font-mono font-semibold text-slate-800">{organization.withdrawalAccount?.accountNumber || '—'}</span>
+            <span className="font-mono font-semibold text-slate-800">{organization.withdrawalAccounts?.[0]?.accountNumber || '—'}</span>
           </div>
           <div>
             <span className="text-slate-400 block text-[11px]">Account Beneficiary</span>
-            <span className="font-semibold text-slate-800">{organization.withdrawalAccount?.accountName || '—'}</span>
+            <span className="font-semibold text-slate-800">{organization.withdrawalAccounts?.[0]?.accountName || '—'}</span>
           </div>
           <div>
             <span className="text-slate-400 block text-[11px]">Swift / Routing Code</span>
-            <span className="font-mono text-slate-800">{organization.withdrawalAccount?.routingOrSwiftCode || '—'}</span>
+            <span className="font-mono text-slate-800">{organization.withdrawalAccounts?.[0]?.routingOrSwiftCode || '—'}</span>
           </div>
         </div>
       </div>
@@ -358,7 +359,7 @@ export const OrganizerWallet: React.FC = () => {
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1 text-xs">
                 <span className="font-medium text-slate-700 block">Bank Settlement Account:</span>
                 <p className="text-slate-600">
-                  {organization.withdrawalAccount?.bankName} · {organization.withdrawalAccount?.accountNumber} ({organization.withdrawalAccount?.accountName})
+                  {organization.withdrawalAccounts?.[0]?.bankName} · {organization.withdrawalAccounts?.[0]?.accountNumber} ({organization.withdrawalAccounts?.[0]?.accountName})
                 </p>
               </div>
 

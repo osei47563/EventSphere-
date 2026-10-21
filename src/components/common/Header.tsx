@@ -101,12 +101,13 @@ export const Header: React.FC = () => {
               </div>
 
               {/* Active Event Dropdown */}
-              <div className="hidden xl:flex items-center">
-                <div className="h-4 w-px bg-slate-200 mx-2" />
+              <div className="flex items-center">
+                <div className="h-4 w-px bg-slate-200 mx-1.5 sm:mx-2" />
                 <select
                   value={activeEvent.id}
                   onChange={(e) => setActiveEventId(e.target.value)}
-                  className="text-xs font-semibold text-[#102A43] bg-[#F1F5F9] hover:bg-slate-200/80 border border-[#E2E8F0] rounded-xl py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-[#102A43] transition-colors max-w-[220px] truncate cursor-pointer"
+                  className="text-xs font-semibold text-[#102A43] bg-[#F1F5F9] hover:bg-slate-200/80 border border-[#E2E8F0] rounded-xl py-1.5 px-2 sm:px-3 focus:outline-none focus:ring-2 focus:ring-[#102A43] transition-colors max-w-[130px] sm:max-w-[220px] truncate cursor-pointer"
+                  title="Switch Active Event"
                 >
                   {events.map((e) => (
                     <option key={e.id} value={e.id}>

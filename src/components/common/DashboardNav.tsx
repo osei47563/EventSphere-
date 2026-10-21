@@ -142,11 +142,11 @@ export const DashboardNav: React.FC<DashboardNavProps> = ({
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {/* Active Event Dropdown on Dashboards - ONLY if organizer has multiple events! */}
             {organizerEvents && organizerEvents.length > 1 && (
-              <div className="hidden xl:flex items-center">
+              <div className="flex items-center">
                 <select
                   value={activeOrganizerEvent?.id || activeEvent?.id}
                   onChange={(e) => setActiveEventId(e.target.value)}
-                  className="text-xs font-semibold text-[#102A43] bg-[#F1F5F9] hover:bg-slate-200/80 border border-[#E2E8F0] rounded-xl py-1.5 px-2.5 focus:outline-none focus:ring-2 focus:ring-[#102A43] transition-colors max-w-[170px] truncate cursor-pointer"
+                  className="text-xs font-semibold text-[#102A43] bg-[#F1F5F9] hover:bg-slate-200/80 border border-[#E2E8F0] rounded-xl py-1.5 px-2 sm:px-2.5 focus:outline-none focus:ring-2 focus:ring-[#102A43] transition-colors max-w-[120px] sm:max-w-[170px] truncate cursor-pointer"
                   title="Switch Active Event"
                 >
                   {organizerEvents.map((e) => (
@@ -481,7 +481,7 @@ export const DashboardNav: React.FC<DashboardNavProps> = ({
                   </p>
                   <p className="flex items-center gap-2 text-[#102A43] truncate">
                     <Mail className="w-4 h-4 text-[#FF8A34] shrink-0" />
-                    <span>obahlog@gmail.com</span>
+                    <span>obahlog1@gmail.com</span>
                   </p>
                 </div>
 

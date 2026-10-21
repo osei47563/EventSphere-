@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { EventData, TicketTier, Attendee, WithdrawalAccount } from '../../types';
 import { formatCurrency } from '../../utils/paystack';
@@ -32,7 +32,8 @@ export const OrganizerDashboard: React.FC = () => {
     walletStats,
     withdrawalRequests,
     requestWithdrawal,
-    updateWithdrawalAccount,
+    addWithdrawalAccount,
+    removeWithdrawalAccount,
     checkInTicket,
     setIs2FAModalOpen,
     broadcastNotification,
@@ -61,7 +62,8 @@ export const OrganizerDashboard: React.FC = () => {
   const [withdrawAccountNumber, setWithdrawAccountNumber] = useState('0530026527');
   const [withdrawAccountName, setWithdrawAccountName] = useState(currentUser?.name || 'Richard Quaye');
 
-  // Create Event Form state
+  // Create & Edit Event Form state
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
   const [formCategory, setFormCategory] = useState('Concerts');
   const [formType, setFormType] = useState<'in_person' | 'virtual' | 'hybrid'>('in_person');
@@ -116,7 +118,7 @@ export const OrganizerDashboard: React.FC = () => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
-  // Team Management State
+  // Team Management State with Granular Role-Based Access Control (RBAC)
   const [teamMembers, setTeamMembers] = useState<Array<{
     id: string;
     name: string;
@@ -124,6 +126,13 @@ export const OrganizerDashboard: React.FC = () => {
     role: string;
     status: 'Active' | 'Pending Invite';
     addedAt: string;
+    permissions: {
+      canScanTickets: boolean;
+      canViewAttendees: boolean;
+      canManageEvents: boolean;
+      canViewFinances: boolean;
+      canSendBroadcasts: boolean;
+    };
   }>>([
     {
       id: 'team-1',
@@ -132,6 +141,13 @@ export const OrganizerDashboard: React.FC = () => {
       role: 'Owner',
       status: 'Active',
       addedAt: '2026-01-15',
+      permissions: {
+        canScanTickets: true,
+        canViewAttendees: true,
+        canManageEvents: true,
+        canViewFinances: true,
+        canSendBroadcasts: true,
+      },
     },
     {
       id: 'team-2',
@@ -140,6 +156,13 @@ export const OrganizerDashboard: React.FC = () => {
       role: 'Gate Scanner Staff',
       status: 'Active',
       addedAt: '2026-03-10',
+      permissions: {
+        canScanTickets: true,
+        canViewAttendees: false,
+        canManageEvents: false,
+        canViewFinances: false,
+        canSendBroadcasts: false,
+      },
     },
     {
       id: 'team-3',
@@ -148,12 +171,64 @@ export const OrganizerDashboard: React.FC = () => {
       role: 'Event Coordinator',
       status: 'Active',
       addedAt: '2026-04-02',
+      permissions: {
+        canScanTickets: true,
+        canViewAttendees: true,
+        canManageEvents: false,
+        canViewFinances: false,
+        canSendBroadcasts: true,
+      },
     },
   ]);
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('Gate Scanner Staff');
+  const [invitePermissions, setInvitePermissions] = useState({
+    canScanTickets: true,
+    canViewAttendees: false,
+    canManageEvents: false,
+    canViewFinances: false,
+    canSendBroadcasts: false,
+  });
+
+  // Handle role preset selection
+  const handleRolePresetChange = (role: string) => {
+    setInviteRole(role);
+    if (role === 'Gate Scanner Staff') {
+      setInvitePermissions({
+        canScanTickets: true,
+        canViewAttendees: false,
+        canManageEvents: false,
+        canViewFinances: false,
+        canSendBroadcasts: false,
+      });
+    } else if (role === 'Event Coordinator') {
+      setInvitePermissions({
+        canScanTickets: true,
+        canViewAttendees: true,
+        canManageEvents: false,
+        canViewFinances: false,
+        canSendBroadcasts: true,
+      });
+    } else if (role === 'Event Manager') {
+      setInvitePermissions({
+        canScanTickets: true,
+        canViewAttendees: true,
+        canManageEvents: true,
+        canViewFinances: false,
+        canSendBroadcasts: true,
+      });
+    } else if (role === 'Finance Auditor') {
+      setInvitePermissions({
+        canScanTickets: false,
+        canViewAttendees: true,
+        canManageEvents: false,
+        canViewFinances: true,
+        canSendBroadcasts: false,
+      });
+    }
+  };
 
   // Broadcast Announcement State
   const [broadcastSubject, setBroadcastSubject] = useState('');
@@ -184,6 +259,54 @@ export const OrganizerDashboard: React.FC = () => {
     message: string;
     attendee?: Attendee;
   } | null>(null);
+  const scannerInstanceRef = useRef<any>(null);
+
+  // Optical Camera Scanner initialization when on check-in tab
+  useEffect(() => {
+    // Auto-close past events
+    organizerEvents.forEach((evt) => {
+      if (evt.status === 'published' && new Date(evt.endDate || evt.startDate) < new Date()) {
+        updateEvent(evt.id, { status: 'completed' });
+      }
+    });
+
+    let qrScanner: any = null;
+    if (activePage === 'check-in') {
+      import('html5-qrcode').then(({ Html5Qrcode }) => {
+        const container = document.getElementById('organizer-qr-reader');
+        if (container) {
+          qrScanner = new Html5Qrcode('organizer-qr-reader');
+          scannerInstanceRef.current = qrScanner;
+          qrScanner
+            .start(
+              { facingMode: 'environment' },
+              { fps: 10, qrbox: { width: 220, height: 220 } },
+              (decodedText: string) => {
+                const res = checkInTicket(decodedText, currentUser?.name || 'Gate Operator');
+                setLastCheckInResult(res);
+                if (res.success) {
+                  showToastMsg(`✓ Access Granted: ${res.attendee?.fullName} (${res.attendee?.ticketTierName})`);
+                } else {
+                  showToastMsg(res.message, 'error');
+                }
+              },
+              () => {}
+            )
+            .catch((err: unknown) => {
+              console.warn('Camera not available or permission denied:', err);
+            });
+        }
+      });
+    }
+
+    return () => {
+      if (scannerInstanceRef.current) {
+        try {
+          scannerInstanceRef.current.stop().catch(() => {});
+        } catch {}
+      }
+    };
+  }, [activePage]);
 
   // Marketing Promo Codes State
   const [promoCodes, setPromoCodes] = useState<Array<{ code: string; discountPercent: number; uses: number; active: boolean }>>([
@@ -392,12 +515,13 @@ export const OrganizerDashboard: React.FC = () => {
       role: inviteRole,
       status: 'Active' as const,
       addedAt: new Date().toISOString().slice(0, 10),
+      permissions: { ...invitePermissions },
     };
     setTeamMembers((prev) => [...prev, newMember]);
     setIsInviteModalOpen(false);
     setInviteName('');
     setInviteEmail('');
-    showToastMsg(`Invitation sent to ${newMember.name} (${newMember.role})!`);
+    showToastMsg(`Invitation sent to ${newMember.name} (${newMember.role}) with customized permissions!`);
   };
 
   const handleRemoveMember = (id: string) => {
@@ -618,8 +742,100 @@ export const OrganizerDashboard: React.FC = () => {
     });
   }, [organizerEvents, eventSearch, eventStatusFilter]);
 
-  // Handle Event Form Submission
-  const handleCreateEventSubmit = (e: React.FormEvent, status: 'published' | 'draft' = 'published') => {
+  // Reset form for creating a new event
+  const handleStartNewEvent = () => {
+    setEditingEventId(null);
+    setFormName('');
+    setFormCategory('Concerts');
+    setFormType('in_person');
+    setFormVisibility('public');
+    setFormDate('2026-11-20');
+    setFormTime('09:00');
+    setFormEndDate('');
+    setFormEndTime('');
+    setFormVenue('Accra Sports Stadium');
+    setFormLocation('Accra');
+    setFormDescription('An extraordinary gathering for industry leaders and enthusiasts.');
+    setFormCoverImage('https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=700&q=80');
+    setFormLogoImage('');
+    setFormTickets([
+      {
+        id: 'tier_init_1',
+        name: 'General Admission',
+        price: 50,
+        capacity: 250,
+        limitPerPerson: 5,
+        description: 'Standard event access, keynote seating & general expo access.',
+        perks: 'General Admission, Digital Badge, Main Hall Access',
+        isFree: false,
+      },
+      {
+        id: 'tier_init_2',
+        name: 'VIP Pass',
+        price: 150,
+        capacity: 50,
+        limitPerPerson: 4,
+        description: 'VIP front-row seating, dedicated check-in, networking lounge & complimentary refreshments.',
+        perks: 'Priority Fast-Track Entry, VIP Lounge Access, Goodie Bag, Refreshments',
+        isFree: false,
+      },
+    ]);
+  };
+
+  // Populate form to edit an existing draft or published event
+  const handleStartEditEvent = (evt: EventData) => {
+    setEditingEventId(evt.id);
+    setFormName(evt.title);
+    setFormCategory(evt.category || 'Concerts');
+    setFormType(evt.locationType || 'in_person');
+    setFormVisibility(evt.visibility || 'public');
+    const startIso = evt.startDate ? evt.startDate.split('T') : ['2026-11-20', '09:00'];
+    setFormDate(startIso[0]);
+    setFormTime(startIso[1]?.slice(0, 5) || '09:00');
+    if (evt.endDate) {
+      const endIso = evt.endDate.split('T');
+      setFormEndDate(endIso[0]);
+      setFormEndTime(endIso[1]?.slice(0, 5) || '18:00');
+    } else {
+      setFormEndDate('');
+      setFormEndTime('');
+    }
+    setFormVenue(evt.venueName || '');
+    setFormLocation(evt.venueAddress || '');
+    setFormDescription(evt.description || '');
+    setFormCoverImage(evt.coverImage || 'https://images.unsplash.com/photo-1501386761578-eac5c94b800a?auto=format&fit=crop&w=700&q=80');
+    setFormLogoImage(evt.logoImage || '');
+    if (evt.ticketTiers && evt.ticketTiers.length > 0) {
+      setFormTickets(
+        evt.ticketTiers.map((t, idx) => ({
+          id: t.id || `tier_${Date.now()}_${idx}`,
+          name: t.name,
+          price: t.price,
+          capacity: t.capacity,
+          limitPerPerson: 5,
+          description: t.description || `${t.name} ticket entry`,
+          perks: Array.isArray(t.perks) ? t.perks.join(', ') : '',
+          isFree: t.type === 'free' || t.price === 0,
+        }))
+      );
+    }
+    goToPage('create-event');
+  };
+
+  // Quick submit draft event for administrator verification
+  const handleSubmitForApproval = (evt: EventData) => {
+    updateEvent(evt.id, { status: 'pending_approval' });
+    showToastMsg(`Event "${evt.title}" submitted for administrator approval.`);
+  };
+
+  const handleToggleEventStatus = (evt: EventData) => {
+    const nextStatus = evt.status === 'completed' ? 'published' : 'completed';
+    updateEvent(evt.id, { status: nextStatus });
+    showToastMsg(`Event "${evt.title}" marked as ${nextStatus === 'completed' ? 'Completed / Closed' : 'Published'}.`);
+  };
+
+  // Handle Event Form Submission (Both Create & Edit/Update)
+  const handleSaveEventSubmit = (e: React.FormEvent, requestedStatus?: 'published' | 'draft' | 'pending_approval') => {
     e.preventDefault();
     if (!formName.trim()) {
       showToastMsg('Please enter an event name.', 'error');
@@ -646,7 +862,13 @@ export const OrganizerDashboard: React.FC = () => {
     const calculatedCapacity = formTickets.reduce((sum, t) => sum + (Number(t.capacity) || 0), 0);
     const slug = formName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-    const newId = createEvent({
+    // Determine target status:
+    // If saving as draft: 'draft'
+    // If submitting for approval: 'pending_approval'
+    // If existing event was already published and organizer edits it: keeps 'published' or sends update
+    const targetStatus = requestedStatus || (editingEventId ? (organizerEvents.find(ev => ev.id === editingEventId)?.status === 'published' ? 'published' : 'pending_approval') : 'pending_approval');
+
+    const eventPayload = {
       title: formName.trim(),
       slug,
       tagline: 'Exciting experience brought to you by ' + organization.name,
@@ -662,12 +884,12 @@ export const OrganizerDashboard: React.FC = () => {
       logoImage: formLogoImage || undefined,
       organizerId: currentUser?.id || 'user_organizer_01',
       organizationId: organization.id,
-      status,
+      status: targetStatus,
       totalCapacity: calculatedCapacity,
       currency: organization.currency || 'GHS',
       visibility: formVisibility,
       ticketTiers: formTickets.map((t, idx) => ({
-        id: `tier_${Date.now()}_${idx}`,
+        id: t.id.startsWith('tier_') ? t.id : `tier_${Date.now()}_${idx}`,
         name: t.name.trim(),
         price: t.isFree ? 0 : Math.max(0, Number(t.price) || 0),
         currency: organization.currency || 'USD',
@@ -680,18 +902,34 @@ export const OrganizerDashboard: React.FC = () => {
           : [`Access with ${t.name.trim()}`],
         salesEnd: new Date(`${formDate}T23:59:59`).toISOString(),
       })),
-      schedule: [],
-      customFields: [],
-      automatedReminders: { send24hReminder: true, send1hReminder: true, sendPostEventSurvey: true },
-    });
+    };
 
-    showToastMsg(
-      status === 'published'
-        ? `Event created with ${formTickets.length} ticket tier(s) and published!`
-        : `Event saved as draft with ${formTickets.length} ticket tier(s).`
-    );
-    setActiveEventId(newId);
-    goToPage('events');
+    if (editingEventId) {
+      updateEvent(editingEventId, eventPayload);
+      showToastMsg(
+        targetStatus === 'pending_approval'
+          ? `Event "${formName}" updated and submitted for administrator approval.`
+          : targetStatus === 'draft'
+          ? `Draft event "${formName}" saved successfully.`
+          : `Event "${formName}" updated successfully.`
+      );
+      setEditingEventId(null);
+      goToPage('events');
+    } else {
+      const newId = createEvent({
+        ...eventPayload,
+        schedule: [],
+        customFields: [],
+        automatedReminders: { send24hReminder: true, send1hReminder: true, sendPostEventSurvey: true },
+      });
+      showToastMsg(
+        targetStatus === 'pending_approval'
+          ? `Event created and submitted for administrator approval before going live!`
+          : `Event saved as draft with ${formTickets.length} ticket tier(s). You can edit anytime.`
+      );
+      setActiveEventId(newId);
+      goToPage('events');
+    }
   };
 
   return (
@@ -701,7 +939,7 @@ export const OrganizerDashboard: React.FC = () => {
         <a href="#overview" onClick={(e) => { e.preventDefault(); goToPage('overview'); }} className="brand">
           <span className="brand-mark">◈</span>
           <span>
-            <span className="brand-name">EventPass</span>
+            <span className="brand-name">EventSphere</span>
             <span className="brand-subtitle">Organizer Workspace</span>
           </span>
         </a>
@@ -1014,7 +1252,7 @@ export const OrganizerDashboard: React.FC = () => {
             <div className="page active">
               <div className="page-heading">
                 <div><h1>My Events</h1><p>Create, manage and monitor your events.</p></div>
-                <button className="btn btn-primary" onClick={() => goToPage('create-event')}>＋ Create Event</button>
+                <button className="btn btn-primary" onClick={() => { handleStartNewEvent(); goToPage('create-event'); }}>＋ Create Event</button>
               </div>
 
               <div className="toolbar">
@@ -1035,54 +1273,133 @@ export const OrganizerDashboard: React.FC = () => {
                     style={{ width: 'auto' }}
                   >
                     <option value="">All statuses</option>
-                    <option value="published">Published</option>
-                    <option value="draft">Draft</option>
+                    <option value="published">Published (Live)</option>
+                    <option value="pending_approval">Pending Approval</option>
+                    <option value="draft">Drafts</option>
                   </select>
                 </div>
                 <div className="toolbar-right"><span className="muted small">{filteredEvents.length} event(s)</span></div>
               </div>
 
               <section className="panel">
+                <div className="panel-header"><h2 className="section-title">Active Events</h2></div>
                 <div className="table-wrap">
                   <table>
                     <thead>
-                      <tr><th>Event</th><th>Date</th><th>Tickets Sold</th><th>Gross Sales</th><th>Status</th><th>Actions</th></tr>
+                      <tr>
+                        <th>Event</th>
+                        <th>Date</th>
+                        <th>Sold</th>
+                        <th>Gross Sales</th>
+                        <th>Platform Cut</th>
+                        <th>Net Earnings</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
                     </thead>
                     <tbody>
-                      {filteredEvents.length === 0 ? (
-                        <tr><td colSpan={6} style={{ textAlign: 'center', padding: '24px' }}>No events found.</td></tr>
+                      {filteredEvents.filter(e => e.status !== 'completed').length === 0 ? (
+                        <tr><td colSpan={8} style={{ textAlign: 'center', padding: '24px' }}>No active events found.</td></tr>
                       ) : (
-                        filteredEvents.map((evt) => (
-                          <tr key={evt.id}>
-                            <td>
-                              <div className="event-table-name">
-                                <img className="event-thumb" src={evt.coverImage} alt="" />
-                                <div>
-                                  <strong>{evt.title}</strong>
-                                  <span>{evt.category} · {evt.venueName}</span>
+                        filteredEvents.filter(e => e.status !== 'completed').map((evt) => {
+                          const evAttendees = attendees.filter((a) => a.eventId === evt.id && a.paymentStatus === 'paid');
+                          const soldCount = attendees.filter((a) => a.eventId === evt.id).length;
+                          const gross = evAttendees.reduce((sum, a) => sum + a.amountPaid, 0);
+                          const commissionRate = organization.platformCommissionRate ?? 18;
+                          const commission = evAttendees.reduce((sum, a) => sum + (a.platformCommission ?? a.amountPaid * (commissionRate / 100)), 0);
+                          const net = evAttendees.reduce((sum, a) => sum + (a.organizerEarnings ?? (a.amountPaid - (a.platformCommission ?? a.amountPaid * (commissionRate / 100)))), 0);
+
+                          return (
+                            <tr key={evt.id}>
+                              <td>
+                                <div className="event-table-name">
+                                  <img className="event-thumb" src={evt.coverImage} alt="" />
+                                  <div>
+                                    <strong>{evt.title}</strong>
+                                    <span>{evt.category} · {evt.venueName}</span>
+                                  </div>
                                 </div>
-                              </div>
-                            </td>
-                            <td>{new Date(evt.startDate).toLocaleDateString()}</td>
-                            <td>{activeEventAttendees.filter((a) => a.eventId === evt.id).length}</td>
-                            <td>{formatCurrency(walletStats.grossRevenue, evt.currency)}</td>
-                            <td><span className="status status-live">{evt.status.toUpperCase()}</span></td>
-                            <td>
-                              <button
-                                className="table-action"
-                                onClick={() => {
-                                  if (confirm(`Delete event "${evt.title}"?`)) {
-                                    deleteEvent(evt.id);
-                                    showToastMsg('Event deleted.');
-                                  }
-                                }}
-                                style={{ color: '#B91C1C' }}
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          </tr>
-                        ))
+                              </td>
+                              <td>{new Date(evt.startDate).toLocaleDateString()}</td>
+                              <td><strong>{soldCount}</strong></td>
+                              <td>{formatCurrency(gross, evt.currency)}</td>
+                              <td style={{ color: '#047857' }}>-{formatCurrency(commission, evt.currency)}</td>
+                              <td><strong style={{ color: '#104A32' }}>{formatCurrency(net, evt.currency)}</strong></td>
+                              <td>
+                                {evt.status === 'published' ? (
+                                  <span className="status status-live">● PUBLISHED</span>
+                                ) : evt.status === 'pending_approval' ? (
+                                  <span className="status" style={{ background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' }}>
+                                    ⏳ PENDING
+                                  </span>
+                                ) : evt.status === 'draft' ? (
+                                  <span className="status" style={{ background: '#F1F5F9', color: '#475569', border: '1px solid #CBD5E1' }}>
+                                    ✎ DRAFT
+                                  </span>
+                                ) : (
+                                  <span className="status" style={{ background: '#FFE4E6', color: '#9F1239' }}>
+                                    {evt.status.toUpperCase()}
+                                  </span>
+                                )}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                  <button type="button" className="table-action" onClick={() => handleStartEditEvent(evt)} style={{ color: '#0369A1', fontWeight: 700 }} title="Edit event details">✎ Edit</button>
+                                  {evt.status === 'draft' && (
+                                    <button type="button" className="table-action" onClick={() => handleSubmitForApproval(evt)} style={{ color: '#D97706', fontWeight: 700 }}>Submit</button>
+                                  )}
+                                  <button type="button" className="table-action" onClick={() => handleToggleEventStatus(evt)} style={{ color: '#475569', fontWeight: 700 }} title="Mark event completed">Complete</button>
+                                  <button type="button" className="table-action" onClick={() => { setActiveEventId(evt.id); setCurrentView('public_event'); }} style={{ color: '#475569' }}>Preview</button>
+                                  <button type="button" className="table-action" onClick={() => deleteEvent(evt.id)} style={{ color: '#DC2626' }}>Delete</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+              <section className="panel">
+                <div className="panel-header"><h2 className="section-title">Past Events Archive</h2></div>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Event</th>
+                        <th>Date</th>
+                        <th>Sold</th>
+                        <th>Gross Sales</th>
+                        <th>Net Earnings</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredEvents.filter(e => e.status === 'completed').length === 0 ? (
+                        <tr><td colSpan={7} style={{ textAlign: 'center', padding: '24px' }}>No past events.</td></tr>
+                      ) : (
+                        filteredEvents.filter(e => e.status === 'completed').map((evt) => {
+                          const evAttendees = attendees.filter((a) => a.eventId === evt.id && a.paymentStatus === 'paid');
+                          const soldCount = attendees.filter((a) => a.eventId === evt.id).length;
+                          const gross = evAttendees.reduce((sum, a) => sum + a.amountPaid, 0);
+                          const net = evAttendees.reduce((sum, a) => sum + (a.organizerEarnings ?? (a.amountPaid - (a.platformCommission ?? a.amountPaid * 0.18))), 0);
+
+                          return (
+                            <tr key={evt.id}>
+                              <td><strong>{evt.title}</strong></td>
+                              <td>{new Date(evt.startDate).toLocaleDateString()}</td>
+                              <td>{soldCount}</td>
+                              <td>{formatCurrency(gross, evt.currency)}</td>
+                              <td>{formatCurrency(net, evt.currency)}</td>
+                              <td><span className="status" style={{ background: '#E2E8F0', color: '#334155', border: '1px solid #CBD5E1' }}>✓ COMPLETED</span></td>
+                              <td>
+                                <button type="button" className="table-action" onClick={() => handleToggleEventStatus(evt)} style={{ color: '#059669', fontWeight: 700 }}>Reopen</button>
+                              </td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
@@ -1091,15 +1408,18 @@ export const OrganizerDashboard: React.FC = () => {
             </div>
           )}
 
-          {/* CREATE EVENT PAGE */}
+          {/* CREATE / EDIT EVENT PAGE */}
           {activePage === 'create-event' && (
             <div className="page active">
               <div className="page-heading">
-                <div><h1>Create an Event</h1><p>Enter your event information and ticket details.</p></div>
+                <div>
+                  <h1>{editingEventId ? 'Edit Event' : 'Create an Event'}</h1>
+                  <p>{editingEventId ? 'Modify your event details, schedule and ticket pricing tiers.' : 'Enter your event information and ticket details.'}</p>
+                </div>
                 <button className="btn btn-outline" onClick={() => goToPage('events')}>← Back to Events</button>
               </div>
 
-              <form onSubmit={(e) => handleCreateEventSubmit(e, 'published')}>
+              <form onSubmit={(e) => handleSaveEventSubmit(e, editingEventId ? (organizerEvents.find(ev => ev.id === editingEventId)?.status === 'published' ? 'published' : 'pending_approval') : 'pending_approval')}>
                 <div className="editor-layout">
                   <div>
                     <section className="panel editor-panel">
@@ -1535,11 +1855,15 @@ export const OrganizerDashboard: React.FC = () => {
                       <button
                         type="button"
                         className="btn btn-outline"
-                        onClick={(e) => handleCreateEventSubmit(e as any, 'draft')}
+                        onClick={(e) => handleSaveEventSubmit(e, 'draft')}
                       >
-                        Save Draft
+                        {editingEventId ? 'Save Changes as Draft' : 'Save as Draft'}
                       </button>
-                      <button type="submit" className="btn btn-primary">Create Event &amp; Publish →</button>
+                      <button type="submit" className="btn btn-primary">
+                        {editingEventId
+                          ? (organizerEvents.find(ev => ev.id === editingEventId)?.status === 'published' ? 'Update Published Event →' : 'Submit for Admin Approval →')
+                          : 'Submit for Admin Approval →'}
+                      </button>
                     </div>
                   </div>
 
@@ -1864,19 +2188,120 @@ export const OrganizerDashboard: React.FC = () => {
           {activePage === 'check-in' && (
             <div className="page active">
               <div className="page-heading">
-                <div><h1>QR Check-in</h1><p>Event entry management and attendance overview.</p></div>
+                <div>
+                  <h1>QR Check-in &amp; Gate Scanner</h1>
+                  <p>Live event entry management, optical camera scanner, and attendee validation.</p>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setCurrentView('scanner')}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <span>⛶</span> Open Dedicated Full-Screen Scanner →
+                </button>
               </div>
 
               <div className="checkin-layout">
                 <section className="scanner-box">
-                  <h2>Ticket Scanner</h2>
-                  <p style={{ color: '#DCEADF', fontSize: '12px', marginTop: '5px' }}>Validate tickets with your authorized scanner.</p>
-                  <div className="scanner-window">
-                    <div><span>▦</span><p>Camera scanner active. Position ticket QR code in frame.</p></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h2 style={{ margin: 0 }}>Ticket Scanner</h2>
+                    <span style={{ fontSize: '11px', color: '#34D399', fontWeight: 'bold' }}>● CAMERA ACTIVE</span>
                   </div>
-                  <button className="btn btn-primary" style={{ width: '100%' }} onClick={() => showToastMsg('Scanner ready!')}>
-                    Simulate Successful Scan
-                  </button>
+                  <p style={{ color: '#DCEADF', fontSize: '12px', marginTop: '2px', marginBottom: '14px' }}>
+                    Point camera at attendee badge or enter ticket code below to validate entry for <strong>{activeOrganizerEvent?.title || 'Active Event'}</strong>.
+                  </p>
+
+                  {/* Real Optical Camera Scanner Reader Container */}
+                  <div
+                    id="organizer-qr-reader"
+                    style={{
+                      width: '100%',
+                      minHeight: '260px',
+                      background: '#0F172A',
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      marginBottom: '14px',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      position: 'relative',
+                    }}
+                  />
+
+                  {/* Manual Code Entry Form */}
+                  <form onSubmit={handleManualCheckIn} style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                    <input
+                      type="text"
+                      placeholder="Or enter ticket code manually (e.g. TKT-9421-VIP)..."
+                      value={manualTicketCode}
+                      onChange={(e) => setManualTicketCode(e.target.value)}
+                      style={{
+                        flex: 1,
+                        background: '#1E293B',
+                        border: '1px solid #334155',
+                        color: '#fff',
+                        borderRadius: '8px',
+                        padding: '10px 12px',
+                        fontSize: '13px',
+                        fontFamily: 'monospace',
+                      }}
+                    />
+                    <button type="submit" className="btn btn-primary" style={{ whiteSpace: 'nowrap' }}>
+                      Verify Pass
+                    </button>
+                  </form>
+
+                  {/* Scan Result Feedback Banner */}
+                  {lastCheckInResult && (
+                    <div
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        marginTop: '10px',
+                        background: lastCheckInResult.success ? '#ECFDF5' : '#FEF2F2',
+                        color: lastCheckInResult.success ? '#065F46' : '#991B1B',
+                        border: `1px solid ${lastCheckInResult.success ? '#A7F3D0' : '#FECACA'}`,
+                      }}
+                    >
+                      <strong>{lastCheckInResult.success ? '✓ ACCESS GRANTED' : '⚠ VERIFICATION FAILED'}:</strong> {lastCheckInResult.message}
+                      {lastCheckInResult.attendee && (
+                        <div style={{ marginTop: '6px', fontSize: '12px', opacity: 0.9 }}>
+                          Attendee: <strong>{lastCheckInResult.attendee.fullName}</strong> · Tier: <strong>{lastCheckInResult.attendee.ticketTierName}</strong>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Quick test check-ins */}
+                  <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                    <span style={{ fontSize: '11px', color: '#94A3B8', display: 'block', marginBottom: '8px' }}>
+                      Quick Check-in Test (Registered Attendees):
+                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {activeEventAttendees.slice(0, 4).map((att) => (
+                        <button
+                          key={att.id}
+                          type="button"
+                          onClick={() => {
+                            const res = checkInTicket(att.ticketCode, currentUser?.name || 'Organizer');
+                            setLastCheckInResult(res);
+                            if (res.success) showToastMsg(`✓ Checked in: ${att.fullName}`);
+                            else showToastMsg(res.message, 'error');
+                          }}
+                          style={{
+                            background: att.checkedIn ? '#065F46' : '#1E293B',
+                            color: '#fff',
+                            border: '1px solid #334155',
+                            padding: '4px 10px',
+                            borderRadius: '6px',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {att.checkedIn ? '✓ ' : ''}{att.fullName.split(' ')[0]} ({att.ticketCode})
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </section>
 
                 <div>
@@ -1885,7 +2310,46 @@ export const OrganizerDashboard: React.FC = () => {
                     <div className="panel-body">
                       <div className="checkin-stat"><strong>{checkedInCount}</strong><span>Check-ins recorded</span></div>
                       <div className="progress"><span style={{ width: `${turnoutPercent}%` }}></span></div>
-                      <p className="muted small">{turnoutPercent}% turnout rate.</p>
+                      <p className="muted small">{turnoutPercent}% turnout rate of {totalAttendeesCount} registered.</p>
+                    </div>
+                  </section>
+
+                  <section className="panel">
+                    <div className="panel-header">
+                      <h2 className="section-title">Recent Gate Activity</h2>
+                    </div>
+                    <div className="panel-body">
+                      {activeEventAttendees.filter((a) => a.checkedIn).length === 0 ? (
+                        <p className="muted small" style={{ margin: 0 }}>No attendees checked in yet today.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          {activeEventAttendees
+                            .filter((a) => a.checkedIn)
+                            .slice(0, 5)
+                            .map((a) => (
+                              <div
+                                key={a.id}
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  fontSize: '12px',
+                                  padding: '8px',
+                                  background: '#F8FAF8',
+                                  borderRadius: '6px',
+                                  border: '1px solid #E6EBE7',
+                                }}
+                              >
+                                <div>
+                                  <strong style={{ color: '#104A32' }}>{a.fullName}</strong>
+                                  <span style={{ color: '#77847C', display: 'block', fontSize: '11px' }}>{a.ticketTierName} · {a.ticketCode}</span>
+                                </div>
+                                <span style={{ color: '#176B45', fontWeight: 600, fontSize: '11px' }}>
+                                  {a.checkedInAt ? new Date(a.checkedInAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Verified'}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   </section>
                 </div>
@@ -1906,7 +2370,7 @@ export const OrganizerDashboard: React.FC = () => {
                     <label>Public Event URL</label>
                     <input
                       readOnly
-                      value={activeOrganizerEvent ? `${window.location.origin}/#/event/${activeOrganizerEvent.id}` : 'Select an active event'}
+                      value={activeOrganizerEvent ? `${window.location.origin}/?event=${activeOrganizerEvent.id}` : 'Select an active event'}
                     />
                   </div>
                   <button className="btn btn-primary" onClick={() => showToastMsg('Event link copied!')}>Copy Share Link</button>
@@ -2069,15 +2533,130 @@ export const OrganizerDashboard: React.FC = () => {
           {activePage === 'team' && (
             <div className="page active">
               <div className="page-heading">
-                <div><h1>Team Members</h1><p>Manage staff who help run your events.</p></div>
-                <button className="btn btn-primary" onClick={() => showToastMsg('Invitation dialog opened')}>＋ Invite Member</button>
+                <div>
+                  <h1>Team Members &amp; Staff Permissions</h1>
+                  <p>Invite gate scanners, coordinators, and check-in staff to operate with authorized event credentials.</p>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setIsInviteModalOpen(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                >
+                  <span>＋</span> Invite New Team Member
+                </button>
               </div>
+
               <section className="panel">
                 <div className="table-wrap">
                   <table>
-                    <thead><tr><th>Name</th><th>Role</th><th>Status</th></tr></thead>
+                    <thead>
+                      <tr>
+                        <th>Staff Name</th>
+                        <th>Email Address</th>
+                        <th>Assigned Role</th>
+                        <th>Granted Permissions</th>
+                        <th>Status</th>
+                        <th>Joined Date</th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
+                      </tr>
+                    </thead>
                     <tbody>
-                      <tr><td><strong>{currentUser?.name || 'Organizer'}</strong></td><td>Owner</td><td><span className="status status-live">Active</span></td></tr>
+                      {teamMembers.map((member) => (
+                        <tr key={member.id}>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                              <div
+                                style={{
+                                  width: '32px',
+                                  height: '32px',
+                                  borderRadius: '50%',
+                                  background: member.role === 'Owner' ? '#104A32' : '#F1F5F9',
+                                  color: member.role === 'Owner' ? '#fff' : '#102A43',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontWeight: 'bold',
+                                  fontSize: '12px',
+                                }}
+                              >
+                                {member.name.charAt(0)}
+                              </div>
+                              <strong>{member.name}</strong>
+                            </div>
+                          </td>
+                          <td style={{ color: '#526579', fontFamily: 'monospace', fontSize: '12px' }}>{member.email}</td>
+                          <td>
+                            <span
+                              style={{
+                                padding: '3px 8px',
+                                borderRadius: '6px',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                background: member.role === 'Owner' ? '#ECFDF5' : '#F1F5F9',
+                                color: member.role === 'Owner' ? '#065F46' : '#334155',
+                                border: '1px solid #E2E8F0',
+                              }}
+                            >
+                              {member.role}
+                            </span>
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '280px' }}>
+                              {member.permissions.canScanTickets && (
+                                <span style={{ fontSize: '10px', background: '#ECFDF5', color: '#065F46', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                  ✓ Scan Passes
+                                </span>
+                              )}
+                              {member.permissions.canViewAttendees && (
+                                <span style={{ fontSize: '10px', background: '#EFF6FF', color: '#1E40AF', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                  ✓ Attendees
+                                </span>
+                              )}
+                              {member.permissions.canManageEvents && (
+                                <span style={{ fontSize: '10px', background: '#F5F3FF', color: '#5B21B6', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                  ✓ Manage Events
+                                </span>
+                              )}
+                              {member.permissions.canViewFinances && (
+                                <span style={{ fontSize: '10px', background: '#FEF3C7', color: '#92400E', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                  ✓ View Finances
+                                </span>
+                              )}
+                              {member.permissions.canSendBroadcasts && (
+                                <span style={{ fontSize: '10px', background: '#F0FDF4', color: '#166534', padding: '1px 6px', borderRadius: '4px', fontWeight: 600 }}>
+                                  ✓ Broadcasts
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <span className={member.status === 'Active' ? 'status status-live' : 'status status-draft'}>
+                              {member.status}
+                            </span>
+                          </td>
+                          <td style={{ fontSize: '12px', color: '#64748B' }}>{member.addedAt}</td>
+                          <td style={{ textAlign: 'right' }}>
+                            {member.role !== 'Owner' ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMember(member.id)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#DC2626',
+                                  fontSize: '12px',
+                                  cursor: 'pointer',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Remove
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: '11px', color: '#94A3B8' }}>Primary Owner</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
@@ -2145,66 +2724,82 @@ export const OrganizerDashboard: React.FC = () => {
                       <p className="muted">Multi-factor authentication and password settings.</p>
                     </div>
                   )}
-                  {settingsTab === 'payments' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                        <div>
-                          <h2 className="section-title" style={{ margin: 0 }}>Payout &amp; Payment Gateway Setup</h2>
-                          <p className="muted" style={{ margin: '4px 0 0 0', fontSize: '12px' }}>
-                            Direct ticket sale payouts routed via official Paystack merchant gateway.
-                          </p>
+                      {settingsTab === 'payments' && (
+                    <div className="space-y-6">
+                      <section>
+                        <h2 className="section-title">Saved Withdrawal Accounts</h2>
+                        <div className="space-y-3 mt-3">
+                          {organization.withdrawalAccounts?.map((account) => (
+                            <div key={account.accountNumber} className="flex items-center justify-between p-3 border border-slate-200 rounded-xl bg-white">
+                              <div>
+                                <p className="text-xs font-bold text-slate-900">{account.bankName}</p>
+                                <p className="text-[11px] text-slate-500">{account.accountName} • {account.accountNumber}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeWithdrawalAccount(account.accountNumber)}
+                                className="text-rose-600 hover:text-rose-800 text-xs font-semibold cursor-pointer"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                          {(!organization.withdrawalAccounts || organization.withdrawalAccounts.length === 0) && (
+                            <p className="text-xs text-slate-500 italic">No withdrawal accounts saved.</p>
+                          )}
                         </div>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            fontWeight: '700',
-                            padding: '4px 10px',
-                            borderRadius: '999px',
-                            background: organization.paystackPublicKey?.startsWith('pk_live_') ? '#ECFDF5' : '#FEF3C7',
-                            color: organization.paystackPublicKey?.startsWith('pk_live_') ? '#065F46' : '#92400E',
-                            border: organization.paystackPublicKey?.startsWith('pk_live_') ? '1px solid #A7F3D0' : '1px solid #FDE68A',
+                      </section>
+
+                      <section>
+                        <h2 className="section-title">Add New Account</h2>
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            addWithdrawalAccount({
+                              bankName: withdrawBankName,
+                              accountNumber: withdrawAccountNumber,
+                              accountName: withdrawAccountName,
+                              currency: organization.currency || 'GHS',
+                            });
+                            showToastMsg('Withdrawal account added!');
+                            setWithdrawBankName('');
+                            setWithdrawAccountNumber('');
+                            setWithdrawAccountName('');
                           }}
+                          className="space-y-4 mt-3"
                         >
-                          {organization.paystackPublicKey?.startsWith('pk_live_') ? '● LIVE PAYSTACK SWITCH' : '○ SANDBOX TEST SWITCH'}
-                        </span>
-                      </div>
-
-                      <div style={{ background: '#F8FCFF', border: '1px solid #BAE6FD', borderRadius: '10px', padding: '16px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', fontSize: '12px' }}>
-                          <div>
-                            <span style={{ color: '#64748B', display: 'block', marginBottom: '2px' }}>Settlement Currency:</span>
-                            <strong style={{ color: '#0369A1', fontSize: '14px' }}>{organization.currency || 'GHS'}</strong>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="field">
+                              <label>Bank or Provider</label>
+                              <input
+                                value={withdrawBankName}
+                                onChange={(e) => setWithdrawBankName(e.target.value)}
+                                placeholder="e.g. MTN MoMo or Stanbic"
+                                required
+                              />
+                            </div>
+                            <div className="field">
+                              <label>Account Number</label>
+                              <input
+                                value={withdrawAccountNumber}
+                                onChange={(e) => setWithdrawAccountNumber(e.target.value)}
+                                placeholder="e.g. 0530026527"
+                                required
+                              />
+                            </div>
+                            <div className="field">
+                              <label>Account Holder</label>
+                              <input
+                                value={withdrawAccountName}
+                                onChange={(e) => setWithdrawAccountName(e.target.value)}
+                                placeholder="e.g. Full Legal Name"
+                                required
+                              />
+                            </div>
                           </div>
-                          <div>
-                            <span style={{ color: '#64748B', display: 'block', marginBottom: '2px' }}>Paystack Gateway Key:</span>
-                            <code style={{ fontFamily: 'monospace', fontSize: '11px', color: '#0F172A' }}>
-                              {organization.paystackPublicKey ? `${organization.paystackPublicKey.substring(0, 12)}••••••` : 'pk_live_••••••••••••'}
-                            </code>
-                          </div>
-                          <div>
-                            <span style={{ color: '#64748B', display: 'block', marginBottom: '2px' }}>Payout Settlement:</span>
-                            <strong style={{ color: '#0F172A' }}>T+1 Automated Direct Bank / MoMo</strong>
-                          </div>
-                          <div>
-                            <span style={{ color: '#64748B', display: 'block', marginBottom: '2px' }}>Platform Commission:</span>
-                            <strong style={{ color: '#166534' }}>{organization.platformCommissionRate ?? 18}%</strong>
-                          </div>
-                        </div>
-
-                        <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #E0F2FE', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
-                          <span style={{ fontSize: '11px', color: '#0369A1' }}>
-                            ✓ 3D-Secure, Visa, Mastercard, Verve, MTN MoMo, Telecel Cash, and USSD enabled
-                          </span>
-                          <button
-                            type="button"
-                            className="btn btn-outline"
-                            style={{ fontSize: '11px', padding: '6px 14px' }}
-                            onClick={() => goToPage('payouts')}
-                          >
-                            Open Revenue &amp; Payouts →
-                          </button>
-                        </div>
-                      </div>
+                          <button type="submit" className="btn btn-primary">Add Account</button>
+                        </form>
+                      </section>
                     </div>
                   )}
                 </section>
@@ -2634,6 +3229,149 @@ export const OrganizerDashboard: React.FC = () => {
                   disabled={!withdrawAmount || Number(withdrawAmount) <= 0 || Number(withdrawAmount) > walletStats.withdrawableBalance}
                 >
                   Confirm &amp; Disburse Payout
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* TEAM MEMBER INVITATION MODAL */}
+      {isInviteModalOpen && (
+        <div className="modal-backdrop" onClick={() => setIsInviteModalOpen(false)}>
+          <div
+            className="modal-card"
+            style={{ maxWidth: '480px', width: '92%' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h2>Invite New Team Member</h2>
+                <p>Grant staff operational access to scan passes, coordinate entries, or manage events.</p>
+              </div>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setIsInviteModalOpen(false)}
+                aria-label="Close dialog"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleInviteMember} style={{ padding: '20px' }}>
+              <div className="field" style={{ marginBottom: '14px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                  Full Name *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Kwesi Appiah"
+                  value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                />
+              </div>
+
+              <div className="field" style={{ marginBottom: '14px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                  Email Address *
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="kwesi@eventsphere.io"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                />
+              </div>
+
+              <div className="field" style={{ marginBottom: '14px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>
+                  Operational Role Preset *
+                </label>
+                <select
+                  value={inviteRole}
+                  onChange={(e) => handleRolePresetChange(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '13px' }}
+                >
+                  <option value="Gate Scanner Staff">Gate Scanner Staff (Fast optical QR scanner &amp; check-in only)</option>
+                  <option value="Event Coordinator">Event Coordinator (Attendee roster, check-in, messaging)</option>
+                  <option value="Event Manager">Event Manager (Event editing, tickets, attendees, check-in)</option>
+                  <option value="Finance Auditor">Finance Auditor (Payout ledger, reports &amp; revenue viewing)</option>
+                  <option value="Custom Role">Custom Role (Select individual permissions below)</option>
+                </select>
+              </div>
+
+              {/* Granular Permission Toggles */}
+              <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '8px', padding: '12px 14px', marginBottom: '18px' }}>
+                <span style={{ fontSize: '11px', fontWeight: 800, textTransform: 'uppercase', color: '#475569', display: 'block', marginBottom: '8px' }}>
+                  Granular Access Permissions (Organizer Controls)
+                </span>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={invitePermissions.canScanTickets}
+                      onChange={(e) => setInvitePermissions((p) => ({ ...p, canScanTickets: e.target.checked }))}
+                    />
+                    <span><strong>Optical QR Scanner &amp; Door Check-in</strong> (Scan and validate attendee passes)</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={invitePermissions.canViewAttendees}
+                      onChange={(e) => setInvitePermissions((p) => ({ ...p, canViewAttendees: e.target.checked }))}
+                    />
+                    <span><strong>View Attendee Roster</strong> (Inspect guest lists and verified badges)</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={invitePermissions.canManageEvents}
+                      onChange={(e) => setInvitePermissions((p) => ({ ...p, canManageEvents: e.target.checked }))}
+                    />
+                    <span><strong>Event &amp; Ticket Tier Management</strong> (Edit event details and pricing)</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={invitePermissions.canViewFinances}
+                      onChange={(e) => setInvitePermissions((p) => ({ ...p, canViewFinances: e.target.checked }))}
+                    />
+                    <span><strong>Payouts &amp; Finance Ledger</strong> (View revenue and withdrawal accounts)</span>
+                  </label>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={invitePermissions.canSendBroadcasts}
+                      onChange={(e) => setInvitePermissions((p) => ({ ...p, canSendBroadcasts: e.target.checked }))}
+                    />
+                    <span><strong>Broadcast Messages</strong> (Send announcements and alerts to attendees)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => setIsInviteModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                >
+                  Send Team Invite →
                 </button>
               </div>
             </form>

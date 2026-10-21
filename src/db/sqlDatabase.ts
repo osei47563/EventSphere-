@@ -39,7 +39,24 @@ const STORAGE_KEYS = {
   MOCK_ENABLED: 'eventsphere_sql_mock_enabled',
 };
 
-// Default fallback organization and admin user that are permanent REAL system records
+// Platform Admin Organization (for system administrator obahlog@gmail.com)
+export const SYSTEM_ADMIN_ORG: Organization = {
+  id: 'org_platform_admin',
+  name: 'EventSphere Global Platform',
+  slug: 'eventsphere-global',
+  tier: 'Enterprise',
+  paystackPublicKey: 'pk_live_d3a846f491c7a915f02bc4594c7182e04f',
+  paystackSecretKeyMasked: 'sk_live_••••••••••••••••••••••••94f1',
+  currency: 'GHS',
+  platformCommissionRate: 18.0,
+  withdrawalAccounts: [],
+  createdAt: '2026-01-01T00:00:00Z',
+  totalEvents: 12,
+  totalRevenue: 248500,
+  isMock: false,
+};
+
+// Default organizer organization for obahlog1@gmail.com
 export const SYSTEM_DEFAULT_ORG: Organization = {
   id: 'org_apex_enterprises',
   name: 'Obah Log Events & Conferences',
@@ -48,14 +65,28 @@ export const SYSTEM_DEFAULT_ORG: Organization = {
   paystackPublicKey: 'pk_test_d3a846f491c7a915f02bc4594c7182e04f',
   paystackSecretKeyMasked: 'sk_test_••••••••••••••••••••••••94f1',
   currency: 'GHS',
-  platformCommissionRate: 18.0,
-  withdrawalAccount: {
-    bankName: 'Stanbic Bank Ghana / MTN MoMo Merchant',
-    accountNumber: '0244981240 / 0530026527',
-    accountName: 'Richard Quaye / Obah Log Events',
-    routingOrSwiftCode: 'SBICGHAC / ECOCGHAC',
-    currency: 'GHS',
-  },
+  platformCommissionRate: 5.0,
+  withdrawalAccounts: [
+    {
+      id: 'acc_01',
+      type: 'mobile_money',
+      bankName: 'MTN Mobile Money',
+      accountNumber: '0530026527',
+      accountName: 'Obah Log Events',
+      currency: 'GHS',
+      isDefault: true,
+    },
+    {
+      id: 'acc_02',
+      type: 'bank',
+      bankName: 'Stanbic Bank Ghana',
+      accountNumber: '0244981240',
+      accountName: 'Richard Quaye / Obah Log Events',
+      routingOrSwiftCode: 'SBICGHAC',
+      currency: 'GHS',
+      isDefault: false,
+    },
+  ],
   createdAt: '2026-01-01T00:00:00Z',
   totalEvents: 0,
   totalRevenue: 0,
@@ -67,7 +98,7 @@ export const SYSTEM_DEFAULT_ADMIN: UserAccount = {
   name: 'Obah Log (Global Admin)',
   email: 'obahlog@gmail.com',
   role: 'system_admin',
-  organizationId: 'org_apex_enterprises',
+  organizationId: 'org_platform_admin',
   twoFactorEnabled: true,
   twoFactorSecret: 'JBSWY3DPEHPK3PXP',
   permissions: {
@@ -82,8 +113,8 @@ export const SYSTEM_DEFAULT_ADMIN: UserAccount = {
 
 export const SYSTEM_DEFAULT_ORGANIZER: UserAccount = {
   id: 'user_organizer_01',
-  name: 'Richard Quaye (Event Organizer)',
-  email: 'richard.quaye@eventsphere.io',
+  name: 'Obah Log (Event Organizer)',
+  email: 'obahlog1@gmail.com',
   role: 'organizer',
   organizationId: 'org_apex_enterprises',
   twoFactorEnabled: false,
@@ -169,9 +200,29 @@ export class SqlDatabaseManager {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.USERS);
       if (!data) return [SYSTEM_DEFAULT_ADMIN, SYSTEM_DEFAULT_ORGANIZER];
-      const parsed: UserAccount[] = JSON.parse(data);
-      if (!parsed.some((u) => u.email === SYSTEM_DEFAULT_ADMIN.email)) {
+      let parsed: UserAccount[] = JSON.parse(data);
+      // Ensure admin user_admin_01 is always strictly obahlog@gmail.com with system_admin role
+      const adminIdx = parsed.findIndex((u) => u.id === 'user_admin_01' || u.email === 'obahlog@gmail.com');
+      if (adminIdx >= 0) {
+        parsed[adminIdx] = {
+          ...parsed[adminIdx],
+          ...SYSTEM_DEFAULT_ADMIN,
+          id: 'user_admin_01',
+          email: 'obahlog@gmail.com',
+          role: 'system_admin',
+        };
+      } else {
         parsed.unshift(SYSTEM_DEFAULT_ADMIN);
+      }
+      // Ensure organizer user with email obahlog1@gmail.com is strictly an organizer
+      const orgIdx = parsed.findIndex((u) => u.email === 'obahlog1@gmail.com');
+      if (orgIdx >= 0) {
+        parsed[orgIdx] = {
+          ...parsed[orgIdx],
+          role: 'organizer',
+        };
+      } else {
+        parsed.push(SYSTEM_DEFAULT_ORGANIZER);
       }
       return parsed;
     } catch {
@@ -186,9 +237,21 @@ export class SqlDatabaseManager {
   public getOrganizations(): Organization[] {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.ORGANIZATIONS);
-      return data ? JSON.parse(data) : [SYSTEM_DEFAULT_ORG];
+      let list: Organization[] = data ? JSON.parse(data) : [SYSTEM_ADMIN_ORG, SYSTEM_DEFAULT_ORG];
+      if (!list.some((o) => o.id === SYSTEM_ADMIN_ORG.id)) {
+        list.unshift(SYSTEM_ADMIN_ORG);
+      }
+      const defaultOrgIdx = list.findIndex((o) => o.id === SYSTEM_DEFAULT_ORG.id);
+      if (defaultOrgIdx >= 0) {
+        if (!list[defaultOrgIdx].withdrawalAccounts || list[defaultOrgIdx].withdrawalAccounts.length === 0) {
+          list[defaultOrgIdx].withdrawalAccounts = SYSTEM_DEFAULT_ORG.withdrawalAccounts;
+        }
+      } else {
+        list.push(SYSTEM_DEFAULT_ORG);
+      }
+      return list;
     } catch {
-      return [SYSTEM_DEFAULT_ORG];
+      return [SYSTEM_ADMIN_ORG, SYSTEM_DEFAULT_ORG];
     }
   }
 
@@ -675,7 +738,7 @@ CREATE TABLE withdrawal_requests (
     if (orgs.length > 0) {
       sql += `\n-- Data for table: organizations (${orgs.length} rows)\n`;
       orgs.forEach((o) => {
-        sql += `INSERT INTO organizations (id, name, slug, tier, paystack_public_key, paystack_secret_key_masked, currency, platform_commission_rate, withdrawal_account, total_events, total_revenue, is_mock, created_at) VALUES (${escapeSql(o.id)}, ${escapeSql(o.name)}, ${escapeSql(o.slug)}, ${escapeSql(o.tier)}, ${escapeSql(o.paystackPublicKey)}, ${escapeSql(o.paystackSecretKeyMasked)}, ${escapeSql(o.currency)}, ${escapeSql(o.platformCommissionRate)}, ${escapeSql(o.withdrawalAccount)}, ${escapeSql(o.totalEvents)}, ${escapeSql(o.totalRevenue)}, ${escapeSql(o.isMock ?? false)}, ${escapeSql(o.createdAt)});\n`;
+        sql += `INSERT INTO organizations (id, name, slug, tier, paystack_public_key, paystack_secret_key_masked, currency, platform_commission_rate, withdrawal_accounts, total_events, total_revenue, is_mock, created_at) VALUES (${escapeSql(o.id)}, ${escapeSql(o.name)}, ${escapeSql(o.slug)}, ${escapeSql(o.tier)}, ${escapeSql(o.paystackPublicKey)}, ${escapeSql(o.paystackSecretKeyMasked)}, ${escapeSql(o.currency)}, ${escapeSql(o.platformCommissionRate)}, ${escapeSql(JSON.stringify(o.withdrawalAccounts))}, ${escapeSql(o.totalEvents)}, ${escapeSql(o.totalRevenue)}, ${escapeSql(o.isMock ?? false)}, ${escapeSql(o.createdAt)});\n`;
       });
     }
 

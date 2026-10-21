@@ -20,7 +20,7 @@ import { Attendee } from '../../types';
 import { DashboardNav } from '../common/DashboardNav';
 
 export const DoorScanner: React.FC = () => {
-  const { activeEvent, activeEventAttendees, checkInTicket, undoCheckIn, currentUser } = useApp();
+  const { events, activeEvent, setActiveEventId, activeEventAttendees, checkInTicket, undoCheckIn, currentUser, setCurrentView } = useApp();
   const [ticketInput, setTicketInput] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lastScanResult, setLastScanResult] = useState<{
@@ -31,8 +31,42 @@ export const DoorScanner: React.FC = () => {
     status: 'idle',
     message: 'Scanner initialized. Ready to verify attendee QR codes or codes.',
   });
-  const [cameraActive, setCameraActive] = useState(true);
+  const [cameraMode, setCameraMode] = useState<'live' | 'manual'>('live');
   const [searchQuery, setSearchQuery] = useState('');
+  const scannerRef = useRef<any>(null);
+
+  useEffect(() => {
+    let html5QrCode: any = null;
+    if (cameraMode === 'live') {
+      import('html5-qrcode').then(({ Html5Qrcode }) => {
+        if (document.getElementById('qr-reader')) {
+          html5QrCode = new Html5Qrcode('qr-reader');
+          scannerRef.current = html5QrCode;
+          html5QrCode
+            .start(
+              { facingMode: 'environment' },
+              { fps: 10, qrbox: { width: 250, height: 250 } },
+              (decodedText: string) => {
+                handleVerify(decodedText);
+              },
+              () => {}
+            )
+            .catch(() => {
+              // Fallback to manual if camera permission denied or unavailable
+              setCameraMode('manual');
+            });
+        }
+      });
+    }
+
+    return () => {
+      if (scannerRef.current) {
+        try {
+          scannerRef.current.stop().catch(() => {});
+        } catch {}
+      }
+    };
+  }, [cameraMode]);
 
   // Audio tone synthesizer using Web Audio API for instantaneous chime without external audio files
   const playChime = (type: 'success' | 'duplicate' | 'invalid') => {
@@ -103,7 +137,7 @@ export const DoorScanner: React.FC = () => {
     handleVerify(ticketInput);
   };
 
-  // Helper to simulate scanning a specific attendee's QR from the event
+  // Helper to simulate or test scan
   const simulateScanAttendee = (attendee: Attendee) => {
     handleVerify(attendee.ticketCode);
   };
@@ -123,21 +157,46 @@ export const DoorScanner: React.FC = () => {
       a.company.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const scannerTabs = [
-    { id: 'scanner', label: 'QR Door Scanner', icon: QrCode },
-    { id: 'roster', label: `Attendee Roster (${totalAttendees})`, icon: Users },
-    { id: 'turnout', label: `Turnout (${turnoutPercent}%)`, icon: Zap },
-  ];
-
   return (
     <div className="min-h-screen bg-slate-50 pb-20 sm:pb-10">
-      <DashboardNav
-        title="QR Door Scanner App"
-        subtitle={`${activeEvent.title} · Operator: ${currentUser.name}`}
-        tabs={scannerTabs}
-        activeTab="scanner"
-        onSelectTab={() => {}}
-      />
+      {/* Modern High-End Scanner Top Header */}
+      <header className="bg-[#102A43] text-white border-b border-slate-800 px-4 sm:px-8 py-3.5 shadow-md flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold">
+            <QrCode className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold tracking-tight text-white">EventSphere Gate Station</span>
+              <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                SECURE OPTICAL SCANNER
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-300">
+              Active Event: <strong className="text-white">{activeEvent.title}</strong> · Operator: <strong className="text-emerald-400">{currentUser.name}</strong>
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl transition-colors cursor-pointer"
+            title="Toggle Audio Feedback"
+          >
+            {soundEnabled ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-400" />}
+            <span className="hidden sm:inline">{soundEnabled ? 'Chime Active' : 'Muted'}</span>
+          </button>
+
+          <button
+            onClick={() => setCurrentView('dashboard')}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold bg-[#FF8A34] hover:bg-[#e07525] text-white rounded-xl transition-all shadow-sm cursor-pointer"
+          >
+            <span>← Exit Scanner &amp; Hub</span>
+          </button>
+        </div>
+      </header>
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
       {/* Top Banner & Turnout Counter */}
       <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
@@ -148,9 +207,21 @@ export const DoorScanner: React.FC = () => {
                 Door Station · Live
               </span>
             </div>
-            <h1 className="text-lg font-bold text-slate-900 mt-0.5">{activeEvent.title}</h1>
-            <p className="text-[11px] text-slate-500 mt-0.5">
-              Operator: <strong className="text-slate-700">{currentUser.name}</strong>
+            <div className="flex items-center gap-3 mt-1 flex-wrap">
+              <select
+                value={activeEvent.id}
+                onChange={(e) => setActiveEventId(e.target.value)}
+                className="text-base font-bold text-slate-900 bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                {events.map((ev) => (
+                  <option key={ev.id} value={ev.id}>
+                    {ev.title} ({ev.ticketTiers.reduce((acc, t) => acc + (t.soldCount || 0), 0)} attendees)
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Operator: <strong className="text-slate-700">{currentUser.name}</strong> · 📍 {activeEvent.venueName}
             </p>
           </div>
 
@@ -222,20 +293,20 @@ export const DoorScanner: React.FC = () => {
               </span>
             </div>
 
-            <div className="relative aspect-16/10 sm:aspect-16/9 bg-slate-950 flex flex-col items-center justify-center overflow-hidden p-6">
-              {/* Animated laser line */}
-              <div className="absolute inset-x-8 top-1/4 h-0.5 bg-emerald-400 shadow-[0_0_12px_#34d399] animate-bounce" />
+             <div className="relative aspect-16/10 sm:aspect-16/9 bg-slate-950 flex flex-col items-center justify-center overflow-hidden p-6">
+              {/* Real html5-qrcode viewfinder container */}
+              <div id="qr-reader" className="w-full h-full absolute inset-0" />
 
               {/* Viewfinder Target Bracket Box */}
-              <div className="relative w-56 h-56 border-2 border-emerald-400/80 rounded-lg flex flex-col items-center justify-center p-4">
+              <div className="relative w-56 h-56 border-2 border-emerald-400/80 rounded-lg flex flex-col items-center justify-center p-4 pointer-events-none z-10">
                 <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-emerald-400 -mt-1 -ml-1" />
                 <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-emerald-400 -mt-1 -mr-1" />
                 <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-emerald-400 -mb-1 -ml-1" />
                 <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-emerald-400 -mb-1 -mr-1" />
 
                 <QrCode className="w-20 h-20 text-slate-700/60" />
-                <span className="text-[11px] text-slate-400 mt-2 text-center">
-                  Align attendee digital pass or physical lanyard badge inside target frame
+                <span className="text-[11px] text-slate-400 mt-2 text-center bg-slate-950/80 px-2 py-0.5 rounded">
+                  Point camera at attendee QR badge
                 </span>
               </div>
 

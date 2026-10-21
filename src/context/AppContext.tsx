@@ -41,6 +41,7 @@ import {
 } from '../utils/zipBackup';
 import { generateQrDataUrl, getEventShareUrl } from '../utils/qr';
 import { generatePaystackReference } from '../utils/paystack';
+import { generateTicketSecuritySeal, verifyTicketAuthenticity } from '../utils/security';
 
 interface AppContextType {
   organization: Organization;
@@ -119,7 +120,8 @@ interface AppContextType {
     status: WithdrawalRequest['status'],
     adminNotes?: string
   ) => void;
-  updateWithdrawalAccount: (account: WithdrawalAccount) => void;
+  addWithdrawalAccount: (account: WithdrawalAccount) => void;
+  removeWithdrawalAccount: (accountNumber: string) => void;
   updatePlatformCommissionRate: (rate: number) => void;
   platformStats: {
     totalGrossTicketSales: number;
@@ -229,6 +231,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalTab, setAuthModalTab] = useState<'login' | 'signup'>('login');
+
+  // Parse URL query parameter on load to support direct event sharing links with flyers and details
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const eventParam = params.get('event');
+      if (eventParam) {
+        const found = events.find((e) => e.id === eventParam || e.slug === eventParam);
+        if (found) {
+          setActiveEventId(found.id);
+          setCurrentView('public_event');
+        }
+      }
+    }
+  }, []);
 
   // Sync state to local storage and SQL Database
   useEffect(() => {
@@ -368,9 +385,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: 'Invalid email or password. Please check your details and try again.' };
     }
 
+    // System Admin obahlog@gmail.com is safeguarded with admin master password
     if (trimmedEmail === 'obahlog@gmail.com') {
       if (!password || password.trim() !== '48468080') {
-        return { success: false, message: 'Invalid email or password. Please check your details and try again.' };
+        return { success: false, message: 'Invalid administrator credentials. Please check your password and try again.' };
       }
     }
 
@@ -410,6 +428,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
       totalEvents: 0,
       totalRevenue: 0,
+      withdrawalAccounts: [],
     };
 
     setOrganizations((prev) => [...prev, newOrg]);
@@ -652,13 +671,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const prefix = organization.paystackPublicKey?.startsWith('pk_live_') ? 'PSTK_LIVE' : 'PSTK_TEST';
     const paystackRef = paymentReference || generatePaystackReference(prefix);
 
-    // Generate Scannable QR code URL with the ticket verification payload
+    // Cryptographic anti-forgery digital security seal
+    const { seal: securitySeal, barcodeHash: securityHash } = generateTicketSecuritySeal({
+      ticketCode,
+      eventId: event.id,
+      email,
+      amount: amountPaid,
+      paymentRef: paystackRef,
+    });
+
+    // Generate Scannable QR code URL with the tamper-proof ticket verification payload
     const qrDataPayload = JSON.stringify({
       code: ticketCode,
       event: event.slug,
       name: fullName,
       tier: tierName,
       seat: assignedSeat,
+      seal: securitySeal,
+      sig: securityHash,
     });
     const qrDataUrl = await generateQrDataUrl(qrDataPayload);
 
@@ -689,6 +719,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       currency,
       paymentChannel,
       checkedIn: false,
+      securitySeal,
+      securityHash,
       createdAt: new Date().toISOString(),
     };
 
@@ -738,18 +770,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const checkInTicket = (
-    ticketCode: string,
+    ticketCodeOrPayload: string,
     operatorName = currentUser.name
   ): { success: boolean; message: string; attendee?: Attendee } => {
-    const cleanCode = ticketCode.trim().toUpperCase();
-    const attendee = attendees.find(
+    let cleanCode = ticketCodeOrPayload.trim().toUpperCase();
+
+    let presentedSeal: string | undefined = undefined;
+
+    // Check if input is a JSON string from QR scanner
+    if (ticketCodeOrPayload.trim().startsWith('{')) {
+      try {
+        const parsed = JSON.parse(ticketCodeOrPayload.trim());
+        if (parsed.code) {
+          cleanCode = String(parsed.code).trim().toUpperCase();
+        }
+        if (parsed.seal) {
+          presentedSeal = String(parsed.seal).trim();
+        }
+      } catch {
+        // Fall back to cleanCode as string
+      }
+    }
+
+    // First try finding attendee in the currently active event
+    let attendee = attendees.find(
       (a) => a.ticketCode.toUpperCase() === cleanCode && a.eventId === activeEvent.id
     );
+
+    // If not found in activeEvent, search across all events to prevent false invalid rejections
+    if (!attendee) {
+      attendee = attendees.find((a) => a.ticketCode.toUpperCase() === cleanCode);
+      if (attendee) {
+        // Auto-switch active event so the check-in context and roster reflect the attendee's event
+        setActiveEventId(attendee.eventId);
+      }
+    }
 
     if (!attendee) {
       return {
         success: false,
-        message: `Invalid or unrecognized ticket code [${cleanCode}]. No matching reservation found for this event.`,
+        message: `FORGERY OR INVALID PASS ALERT: Ticket code [${cleanCode}] does not exist in any registered event database. Access Denied.`,
+      };
+    }
+
+    // Cryptographic anti-forgery validation
+    const authCheck = verifyTicketAuthenticity(attendee, presentedSeal);
+    if (!authCheck.isValid) {
+      addAuditLog(
+        'FORGED_TICKET_DETECTED',
+        `FORGERY ALERT: Tampered receipt presented for ${attendee.ticketCode} (${attendee.fullName}). Reason: ${authCheck.reason}`
+      );
+      return {
+        success: false,
+        message: `COUNTERFEIT / TAMPERED RECEIPT DETECTED: ${authCheck.reason || 'Cryptographic signature mismatch.'} Entry Prohibited.`,
+        attendee,
       };
     }
 
@@ -987,15 +1061,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
-  const updateWithdrawalAccount = (account: WithdrawalAccount) => {
+  const addWithdrawalAccount = (account: WithdrawalAccount) => {
     setOrganizations((prev) =>
       prev.map((o) =>
         o.id === organization.id
-          ? { ...o, withdrawalAccount: account }
+          ? { ...o, withdrawalAccounts: [...(o.withdrawalAccounts || []), account] }
           : o
       )
     );
-    addAuditLog('WITHDRAWAL_BANK_UPDATED', `Updated bank settlement details: ${account.bankName} - ${account.accountNumber}`);
+    addAuditLog('WITHDRAWAL_BANK_ADDED', `Added bank settlement account: ${account.bankName} - ${account.accountNumber}`);
+  };
+
+  const removeWithdrawalAccount = (accountNumber: string) => {
+    setOrganizations((prev) =>
+      prev.map((o) =>
+        o.id === organization.id
+          ? {
+              ...o,
+              withdrawalAccounts: (o.withdrawalAccounts || []).filter(
+                (a) => a.accountNumber !== accountNumber
+              ),
+            }
+          : o
+      )
+    );
+    addAuditLog('WITHDRAWAL_BANK_REMOVED', `Removed bank settlement account: ${accountNumber}`);
   };
 
   const updatePlatformCommissionRate = (rate: number) => {
@@ -1309,7 +1399,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         withdrawalRequests,
         requestWithdrawal,
         updateWithdrawalStatus,
-        updateWithdrawalAccount,
+        addWithdrawalAccount,
+        removeWithdrawalAccount,
         updatePlatformCommissionRate,
         platformStats,
         walletStats,
