@@ -57,7 +57,7 @@ interface AppContextType {
   activeEvent: EventData;
   activeOrganizerEvent: EventData | null;
   setActiveEventId: (id: string) => void;
-  createEvent: (event: Omit<EventData, 'id' | 'createdAt'>) => string;
+  createEvent: (event: Omit<EventData, 'id' | 'createdAt'>) => Promise<string>;
   loadSampleEventTemplate: (templateType?: 'conference' | 'concert' | 'workshop') => string;
   updateEvent: (id: string, updates: Partial<EventData>) => void;
   deleteEvent: (id: string) => void;
@@ -112,7 +112,7 @@ interface AppContextType {
   setAuthModalTab: (tab: 'login' | 'signup') => void;
   login: (email: string, password?: string) => { success: boolean; message: string };
   logout: () => void;
-  signup: (params: { name: string; email: string; role: UserRole; organizationName?: string }) => UserAccount;
+  signup: (params: { name: string; email: string; password: string; role: UserRole; organizationName?: string }) => UserAccount;
   // Wallet & Commission
   withdrawalRequests: WithdrawalRequest[];
   requestWithdrawal: (amount: number, account: WithdrawalAccount) => WithdrawalRequest;
@@ -233,19 +233,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Parse URL query parameter on load to support direct event sharing links with flyers and details
   useEffect(() => {
-    // Firebase connection test
-    const testConnection = async () => {
+    // Firebase connection test and initial data load
+    const initializeData = async () => {
       try {
-        await import('../db/firebase').then(async ({ db }) => {
-          const { doc, getDocFromServer } = await import('firebase/firestore');
-          await getDocFromServer(doc(db, 'test', 'connection'));
-          console.log('Firestore connected successfully.');
+        const { db } = await import('../db/firebase');
+        const { collection, getDocs, doc, getDocFromServer } = await import('firebase/firestore');
+        
+        // Connection test
+        await getDocFromServer(doc(db, 'test', 'connection'));
+        console.log('Firestore connected successfully.');
+
+        // Load events
+        const querySnapshot = await getDocs(collection(db, 'events'));
+        const firestoreEvents: EventData[] = [];
+        querySnapshot.forEach((doc) => {
+          firestoreEvents.push(doc.data() as EventData);
         });
+        if (firestoreEvents.length > 0) {
+            setEvents(firestoreEvents);
+        }
       } catch (error) {
-        console.error('Firestore connection test failed:', error);
+        console.error('Firestore initialization failed:', error);
       }
     };
-    testConnection();
+    initializeData();
 
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -425,7 +436,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addAuditLog('USER_LOGOUT', `User ${userName} logged out of session.`);
   };
 
-  const signup = (params: { name: string; email: string; role: UserRole; organizationName?: string }): UserAccount => {
+  const signup = (params: { name: string; email: string; password: string; role: UserRole; organizationName?: string }): UserAccount => {
     // Generate isolated organization for new organizer
     const newOrgId = `org_${Date.now()}`;
     const orgName = params.organizationName?.trim() || `${params.name.trim()}'s Event Studio`;
@@ -450,6 +461,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `user_${Date.now()}`,
       name: params.name.trim(),
       email: params.email.toLowerCase().trim(),
+      password: params.password, // Store password
       role: params.role,
       organizationId: newOrgId,
       twoFactorEnabled: false,
@@ -506,7 +518,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setAuditLogs((prev) => [newLog, ...prev]);
   };
 
-  const createEvent = (eventData: Omit<EventData, 'id' | 'createdAt'>): string => {
+  const createEvent = async (eventData: Omit<EventData, 'id' | 'createdAt'>): Promise<string> => {
     const newId = `evt_${Date.now()}`;
     const newEvent: EventData = {
       ...eventData,
@@ -515,6 +527,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       organizerId: currentUser.id,
       organizationId: currentUser.organizationId || organization.id,
     };
+    
+    // Add to Firestore
+    try {
+        const { collection, setDoc, doc } = await import('firebase/firestore');
+        const { db } = await import('../db/firebase');
+        await setDoc(doc(collection(db, 'events'), newId), newEvent);
+    } catch (e) {
+        console.error("Error adding document: ", e);
+    }
+    
     setEvents((prev) => [newEvent, ...prev]);
     setActiveEventId(newId);
     addAuditLog('EVENT_CREATED', `Created new event "${newEvent.title}" (${newEvent.slug})`);
