@@ -26,6 +26,7 @@ export const AuthModal: React.FC = () => {
     users,
     login,
     signup,
+    sendPasswordResetEmail,
   } = useApp();
 
   const [email, setEmail] = useState('');
@@ -33,6 +34,7 @@ export const AuthModal: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [isForgotPasswordMode, setIsForgotPasswordMode] = useState(false);
 
   // Signup form state
   const [signupName, setSignupName] = useState('');
@@ -238,6 +240,16 @@ export const AuthModal: React.FC = () => {
                   </div>
                 </div>
 
+                <div className="text-right">
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotPasswordMode(true)}
+                    className="text-xs text-[var(--green-800)] hover:underline font-semibold"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+
                 <button
                   type="submit"
                   className="w-full py-2.5 px-4 bg-[var(--green-800)] hover:bg-[var(--green-900)] text-white font-semibold text-xs rounded-lg transition-colors shadow-sm flex items-center justify-center gap-1.5 cursor-pointer mt-2"
@@ -246,6 +258,33 @@ export const AuthModal: React.FC = () => {
                   <ArrowRight className="w-3.5 h-3.5 text-emerald-300" />
                 </button>
               </form>
+              
+              {isForgotPasswordMode && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                  <div className="bg-white p-6 rounded-xl w-full max-w-sm">
+                    <h3 className="font-bold text-lg mb-4">Reset Password</h3>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="Enter your email"
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg mb-4"
+                    />
+                    <div className="flex gap-2">
+                        <button onClick={() => setIsForgotPasswordMode(false)} className="flex-1 py-2 text-xs border rounded-lg">Cancel</button>
+                        <button onClick={async () => {
+                            const res = await sendPasswordResetEmail(email);
+                            if (res.success) {
+                                setSuccessMsg(res.message);
+                                setIsForgotPasswordMode(false);
+                            } else {
+                                setErrorMsg(res.message);
+                            }
+                        }} className="flex-1 py-2 text-xs bg-[var(--green-800)] text-white rounded-lg">Send Email</button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="relative my-3 flex items-center justify-center">
                 <div className="absolute inset-0 flex items-center">

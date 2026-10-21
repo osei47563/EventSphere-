@@ -1,0 +1,112 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "User Account",
+      "description": "User account details and roles.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "role": { "type": "string" },
+        "organizationId": { "type": "string" }
+      },
+      "required": ["id", "name", "email", "role", "organizationId"]
+    },
+    "Organization": {
+      "title": "Organization",
+      "description": "Organization details for tenants.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "slug": { "type": "string" }
+      },
+      "required": ["id", "name", "slug"]
+    },
+    "EventData": {
+      "title": "Event Data",
+      "description": "Details about a specific event.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "organizerId": { "type": "string" },
+        "organizationId": { "type": "string" }
+      },
+      "required": ["id", "title", "organizerId", "organizationId"]
+    },
+    "Attendee": {
+      "title": "Attendee",
+      "description": "Attendee registration information.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "eventId": { "type": "string" },
+        "fullName": { "type": "string" },
+        "email": { "type": "string" }
+      },
+      "required": ["id", "eventId", "fullName", "email"]
+    },
+    "RealTimeNotification": {
+      "title": "Notification",
+      "description": "System or event notifications.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "required": ["id", "title"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "System audit trail.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "action": { "type": "string" }
+      },
+      "required": ["id", "action"]
+    },
+    "WithdrawalRequest": {
+      "title": "Withdrawal Request",
+      "description": "Financial payout requests.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "amount": { "type": "number" }
+      },
+      "required": ["id", "amount"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "User profiles."
+    },
+    "/organizations/{orgId}": {
+      "schema": { "$ref": "#/entities/Organization" },
+      "description": "Organizations."
+    },
+    "/events/{eventId}": {
+      "schema": { "$ref": "#/entities/EventData" },
+      "description": "Events collection."
+    },
+    "/attendees/{attendeeId}": {
+      "schema": { "$ref": "#/entities/Attendee" },
+      "description": "Attendees collection."
+    },
+    "/notifications/{notifId}": {
+      "schema": { "$ref": "#/entities/RealTimeNotification" },
+      "description": "Notifications collection."
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Audit logs collection."
+    },
+    "/withdrawalRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/WithdrawalRequest" },
+      "description": "Withdrawal requests collection."
+    }
+  }
+}

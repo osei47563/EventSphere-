@@ -97,6 +97,7 @@ interface AppContextType {
   is2FAModalOpen: boolean;
   setIs2FAModalOpen: (open: boolean) => void;
   toggleTwoFactor: (enabled: boolean) => void;
+  sendPasswordResetEmail: (email: string) => Promise<{ success: boolean; message: string }>;
   getQrCodeForTicket: (ticketCode: string) => Promise<string>;
   getQrCodeForEvent: (eventSlug: string) => Promise<string>;
   currentView: AppView;
@@ -165,12 +166,10 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Check if mock data was cleared on first boot
   const [isMockDataSeeded, setIsMockDataSeeded] = useState<boolean>(() => {
-    if (localStorage.getItem('eventsphere_mock_init_v2') === null) {
-      localStorage.setItem('eventsphere_mock_init_v2', 'true');
-      sqlDb.unseedMockData(); // Clear mock data as requested!
-      return false;
-    }
-    return sqlDb.isMockDataEnabled();
+    // Force clear mock data permanently
+    sqlDb.unseedMockData();
+    localStorage.setItem('eventsphere_mock_init_v2', 'true');
+    return false;
   });
 
   const [organizations, setOrganizations] = useState<Organization[]>(() => {
@@ -234,6 +233,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Parse URL query parameter on load to support direct event sharing links with flyers and details
   useEffect(() => {
+    // Firebase connection test
+    const testConnection = async () => {
+      try {
+        await import('../db/firebase').then(async ({ db }) => {
+          const { doc, getDocFromServer } = await import('firebase/firestore');
+          await getDocFromServer(doc(db, 'test', 'connection'));
+          console.log('Firestore connected successfully.');
+        });
+      } catch (error) {
+        console.error('Firestore connection test failed:', error);
+      }
+    };
+    testConnection();
+
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const eventParam = params.get('event');
@@ -381,7 +394,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const trimmedEmail = email.toLowerCase().trim();
     const match = users.find((u) => u.email.toLowerCase() === trimmedEmail);
 
-    if (!match) {
+    if (!match || (match.password && match.password !== password)) {
       return { success: false, message: 'Invalid email or password. Please check your details and try again.' };
     }
 
@@ -1132,6 +1145,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  const sendPasswordResetEmail = async (email: string) => {
+    try {
+      const { sendPasswordResetEmail: firebaseReset } = await import('firebase/auth');
+      const { auth } = await import('../db/firebase');
+      await firebaseReset(auth, email);
+      return { success: true, message: 'Password reset email sent. Please check your inbox.' };
+    } catch (error: any) {
+      return { success: false, message: error.message || 'Failed to send reset email.' };
+    }
+  };
+
+
   const suspendUser = (userId: string) => {
     setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role: 'suspended' as any } : u)));
     addAuditLog('USER_SUSPENDED', `Admin suspended user ${userId}`);
@@ -1382,6 +1407,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         is2FAModalOpen,
         setIs2FAModalOpen,
         toggleTwoFactor,
+        sendPasswordResetEmail,
         getQrCodeForTicket,
         getQrCodeForEvent,
         currentView,

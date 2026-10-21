@@ -53,7 +53,7 @@ export const SYSTEM_ADMIN_ORG: Organization = {
   createdAt: '2026-01-01T00:00:00Z',
   totalEvents: 12,
   totalRevenue: 248500,
-  isMock: false,
+  isMock: false, password: "password123",
 };
 
 // Default organizer organization for obahlog1@gmail.com
@@ -90,7 +90,7 @@ export const SYSTEM_DEFAULT_ORG: Organization = {
   createdAt: '2026-01-01T00:00:00Z',
   totalEvents: 0,
   totalRevenue: 0,
-  isMock: false,
+  isMock: false, password: "password123",
 };
 
 export const SYSTEM_DEFAULT_ADMIN: UserAccount = {
@@ -108,7 +108,7 @@ export const SYSTEM_DEFAULT_ADMIN: UserAccount = {
     canBroadcastNotifications: true,
     canManageTeam: true,
   },
-  isMock: false,
+  isMock: false, password: "password123",
 };
 
 export const SYSTEM_DEFAULT_ORGANIZER: UserAccount = {
@@ -125,7 +125,7 @@ export const SYSTEM_DEFAULT_ORGANIZER: UserAccount = {
     canBroadcastNotifications: true,
     canManageTeam: true,
   },
-  isMock: false,
+  isMock: false, password: "password123",
 };
 
 export const SYSTEM_DEFAULT_FOOTER: FooterSettings = {

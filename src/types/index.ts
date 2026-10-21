@@ -32,6 +32,7 @@ export interface UserAccount {
     canBroadcastNotifications: boolean;
     canManageTeam: boolean;
   };
+  password?: string;
   isMock?: boolean;
 }
 
